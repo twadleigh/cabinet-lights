@@ -10,6 +10,7 @@
 
 | Module | Files | Status | Notes |
 | :--- | :--- | :--- | :--- |
+| **Docs & Rules** | [README.md](README.md), [AGENTS.md](AGENTS.md), [doc/AUDIO_VISION.md](doc/AUDIO_VISION.md) | ✅ Complete | Root `README.md`, auto-loaded `AGENTS.md` (with embedded `HANDOFF.md`), and audio DSP spec in place. |
 | **Config** | [include/config.h](include/config.h) | ✅ Complete | Pinout, 20 kHz PWM constants, $\gamma = 2.4$, perceptual color targets defined. |
 | **LED Driver** | [include/led_driver.h](include/led_driver.h), [src/led_driver.cpp](src/led_driver.cpp) | ✅ Complete | 20 kHz, 10-bit (`0–1023`) PWM with CIE $L^*$ power-law gamma mapping (`powf(val, 2.4f)`). |
 | **Door Engine** | [include/door_engine.h](include/door_engine.h), [src/door_engine.cpp](src/door_engine.cpp) | ✅ Complete | Smooth 5s perceptual fade (with mid-fade reversal lock); 3 ambient modes (`HUE_WALK`, `STATIC_HUE`, `WARM_LOUNGE`); brightness stepping (`10%–100%`); manual Task White override. |
@@ -20,15 +21,10 @@
 
 ## 2. What Changed Last Turn
 
-1. **Core 1 Dual-Core Safety Fix ([include/audio_dsp.h](include/audio_dsp.h), [src/audio_dsp.cpp](src/audio_dsp.cpp), [src/main.cpp](src/main.cpp)):**
-   - Removed `Serial.println()` calls from Core 1 (`audioDspCore1Init()`).
-   - Added `AudioDspStatus` (`AUDIO_DSP_UNINIT`, `AUDIO_DSP_ONLINE`, `AUDIO_DSP_FAULT`) polled and logged safely by Core 0 in `loop()`.
-2. **Debounce Tick Integrity ([src/button_manager.cpp](src/button_manager.cpp)):**
-   - `buttonManagerUpdate()` now runs `updatePin()` across both door switches and all four buttons on every 5 ms tick before returning any falling-edge event.
-3. **Satellite Buttons Wired ([include/door_engine.h](include/door_engine.h), [src/door_engine.cpp](src/door_engine.cpp), [src/main.cpp](src/main.cpp)):**
-   - `BTN_EVENT_TASK_TAP` (`GP11`): Toggles manual photopic Task White override (smooth 5s cross-fade using `rampStartProgress`; auto-resets when physical door closes).
-   - `BTN_EVENT_MODE_TAP` (`GP8`): Exits Task White override if active; otherwise cycles `AmbientMode` (`HUE_WALK` $\rightarrow$ `STATIC_HUE` $\rightarrow$ `WARM_LOUNGE`).
-   - `BTN_EVENT_UP_TAP` (`GP9`) / `BTN_EVENT_DOWN_TAP` (`GP10`): Steps ambient perceptual lightness in `10%` increments (`10%` to `100%`).
+1. **Added Root [README.md](README.md):**
+   - Documented hardware architecture, full pinout reference table, Core 0 / Core 1 software partitioning, PlatformIO build/flash commands, and documentation links.
+2. **Completed Stage 1 Fixes:**
+   - Removed `Serial` calls from Core 1 (`AudioDspStatus` polled by Core 0), ensured all 6 input pins update every debounce tick, and wired `MODE`, `UP`, `DOWN`, and `TASK` satellite buttons into `door_engine`.
 
 ---
 
