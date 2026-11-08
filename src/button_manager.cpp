@@ -50,22 +50,24 @@ void buttonManagerInit() {
 }
 
 ButtonEvent buttonManagerUpdate() {
-  bool fell = false;
+  bool dummyDoorFell = false;
+  bool modeFell = false;
+  bool upFell   = false;
+  bool downFell = false;
+  bool taskFell = false;
 
-  updatePin(doorLeft, fell);
-  updatePin(doorRight, fell);
+  // Update all pins every tick so debounce timers stay accurate
+  updatePin(doorLeft,  dummyDoorFell);
+  updatePin(doorRight, dummyDoorFell);
+  updatePin(btnMode,   modeFell);
+  updatePin(btnUp,     upFell);
+  updatePin(btnDown,   downFell);
+  updatePin(btnTask,   taskFell);
 
-  updatePin(btnMode, fell);
-  if (fell) return BTN_EVENT_MODE_TAP;
-
-  updatePin(btnUp, fell);
-  if (fell) return BTN_EVENT_UP_TAP;
-
-  updatePin(btnDown, fell);
-  if (fell) return BTN_EVENT_DOWN_TAP;
-
-  updatePin(btnTask, fell);
-  if (fell) return BTN_EVENT_TASK_TAP;
+  if (taskFell) return BTN_EVENT_TASK_TAP;
+  if (modeFell) return BTN_EVENT_MODE_TAP;
+  if (upFell)   return BTN_EVENT_UP_TAP;
+  if (downFell) return BTN_EVENT_DOWN_TAP;
 
   return BTN_EVENT_NONE;
 }

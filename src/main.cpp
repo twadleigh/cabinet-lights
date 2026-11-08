@@ -31,10 +31,22 @@ void setup() {
 }
 
 void loop() {
+  // 0. Monitor Core 1 Audio DSP Status (Core 0 owns all Serial telemetry)
+  static AudioDspStatus lastDspStatus = AUDIO_DSP_UNINIT;
+  AudioDspStatus currentDspStatus = getAudioDspStatus();
+  if (currentDspStatus != lastDspStatus) {
+    lastDspStatus = currentDspStatus;
+    if (currentDspStatus == AUDIO_DSP_ONLINE) {
+      Serial.println(F("[CORE 1] INMP441 I2S Task Running"));
+    } else if (currentDspStatus == AUDIO_DSP_FAULT) {
+      Serial.println(F("[CORE 1] Failed to initialize I2S interface!"));
+    }
+  }
+
   // 1. Process Debounced Inputs
   ButtonEvent event = buttonManagerUpdate();
   if (event != BTN_EVENT_NONE) {
-    Serial.printf("[BUTTON] Event Detected: ID %d\n", (int)event);
+    doorEngineHandleButton(event);
   }
 
   // 2. Evaluate Door Contacts
@@ -52,8 +64,10 @@ void loop() {
   static unsigned long lastTelemetry = 0;
   if (millis() - lastTelemetry >= 1000) {
     lastTelemetry = millis();
-    Serial.printf("[RUNNING] Door: %s | S1 (W:%.2f R:%.2f G:%.2f B:%.2f)\n",
+    Serial.printf("[RUNNING] Door: %s | TaskOvr: %s | Bri: %.0f%% | S1 (W:%.2f R:%.2f G:%.2f B:%.2f)\n",
                   doorOpen ? "OPEN" : "CLOSED",
+                  doorEngineIsTaskOverrideActive() ? "ON" : "OFF",
+                  doorEngineGetAmbientBrightness() * 100.0f,
                   s1.w, s1.r, s1.g, s1.b);
   }
 
