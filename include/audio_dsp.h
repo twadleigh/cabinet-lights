@@ -16,5 +16,6 @@ struct AudioEnergy {
 
 void audioDspCore1Init();
 void audioDspCore1Update();
+void audioDspStopForOta();
 AudioDspStatus getAudioDspStatus();
 void getAudioEnergySnapshot(AudioEnergy& snapshot);

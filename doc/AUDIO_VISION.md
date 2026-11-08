@@ -1,67 +1,238 @@
-# Long-Term Audio Architecture & Animation Roadmap
+# Long-Term Audio DSP, Perceptual Kinematics & TinyML Architecture
 
-## 1. High-Level Vision & Core Partitioning
-
-The goal is to transition the cabinet lighting controller into an intelligent, audio-reactive system without compromising low-latency PWM performance or tactile control.
-
-- **Core 0 (Hardware & Kinematics - 100–200 Hz):**
-  - 8-channel PWM generation (20 kHz, 10-bit) via 74AHCT541 buffer.
-  - Door switch kinematics (5-second perceptual fade in CIE L\* space).
-  - 4-button debounce and manual mode overrides.
-  - Wi-Fi / OTA network services.
-  - Renders visual animations based on state structs provided by Core 1.
-
-- **Core 1 (Real-Time Audio DSP & Edge Inference):**
-  - **Stage A (Deterministic DSP - Every 4 ms):** Continuous I2S audio ingestion (16 kHz, 16-bit PCM from INMP441). Real-time 4-band IIR biquad filtering and asymmetric envelope followers.
-  - **Stage B (TinyML Macro Classifier - Every 1.5–2.0 s):** A low-priority background task evaluating rolling spectrogram windows to classify macro context.
+This document is the authoritative specification for the **Cabinet Lighting Controller's** long-term visual kinematics, real-time Core 1 I2S audio DSP pipeline, math-rock transient envelope follower, and TinyML (2D DS-CNN) acoustic macro-context classifier.
 
 ---
 
-## 2. Real-Time Audio DSP: 4-Band IIR Filter Bank
+## 1. System Partitioning & Priority Hierarchy
 
-Instead of sliding FFT windows (which introduce 30–60 ms temporal smearing), transient detection runs on the RP2350’s single-precision FPU and ARM DSP SIMD instructions:
+### 1.1 Dual-Core Hardware Partitioning (RP2350 @ 150 MHz)
 
-### Filter Bank Targets (Fs = 16 kHz, Direct-Form II Transposed):
+The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision FPU and ARMv8-M DSP SIMD extensions) is partitioned across its two physical cores to guarantee zero-jitter PWM rendering alongside real-time audio processing:
 
-1. **Band 1 (Sub/Kick: 40–120 Hz):** Low-pass / peaking filter. Tracks bass drum and bass root notes.
-   - _Target:_ Drives Warm White (W1, W2) and Red (R1, R2) symmetrically.
-   - _Decay Constant:_ $\tau \approx 120\text{–}180\text{ ms}$ (punchy weight).
-2. **Band 2 (Low-Mid / Snare: 200–800 Hz):** Bandpass ($Q \approx 1.2$). Tracks snare hits, fundamental guitar chords, and backbeats.
-   - _Decay Constant:_ $\tau \approx 90\text{ ms}$.
-3. **Band 3 (Mid-High / Tapped Guitars: 1–3.5 kHz):** Bandpass ($Q \approx 1.5$). Captures two-handed fretboard tapping, guitar arpeggios, and rimshots.
-   - _Target:_ Ping-pong spatial alternation across Green and Blue channels.
-   - _Decay Constant:_ $\tau \approx 60\text{ ms}$.
-4. **Band 4 (Air / Transients: > 5 kHz):** High-pass / shelving filter. Captures hi-hat subdivisions, pick clicks, and cymbal strikes.
-   - _Decay Constant:_ $\tau \approx 40\text{ ms}$.
-
-### Envelopes & Math-Rock Robustness:
-
-- **No Rigid Grid / Phase-Locked Loops:** Avoid autocorrelation tempo estimators that lose lock on asymmetric or additive meters (e.g., 5/4, 7/8, 11/8).
-- **Instantaneous Onset:** Attack is instantaneous ($0\text{ ms}$), followed by true exponential decay: $I_t = I_{t-1} \cdot e^{-\Delta t / \tau}$.
-- **Spatial Separation:** Low-end energy grounds the visual field symmetrically across Strip 1 and Strip 2, while high-frequency guitar and cymbal transients alternate across strips to track complex stereo counterpoints.
+- **Core 0 — Hardware IO, Perceptual Kinematics & Network Services (`setup()` / `loop()` @ ~200 Hz / 5 ms):**
+  - **8-Channel Ultrasonic PWM (`20 kHz`, 10-bit `0–1023`):** Drives two 12V RGBW LED strips via a `74AHCT541N` 5V octal buffer and 8× `IRLZ44N` low-side MOSFETs. Channels are paired across 4 hardware PWM slices on the right header:
+    - **Slice 0:** `GP16` (`0A` $\rightarrow$ `W1`), `GP17` (`0B` $\rightarrow$ `B1`)
+    - **Slice 1:** `GP18` (`1A` $\rightarrow$ `R1`), `GP19` (`1B` $\rightarrow$ `G1`)
+    - **Slice 2:** `GP20` (`2A` $\rightarrow$ `W2`), `GP21` (`2B` $\rightarrow$ `B2`)
+    - **Slice 5:** `GP26` (`5A` $\rightarrow$ `R2`), `GP27` (`5B` $\rightarrow$ `G2`)
+  - **Input Debouncing (`35 ms` non-blocking):** Evaluates Left/Right magnetic door reed switches (`GP0`, `GP1`) and the 4-button satellite pod (`GP8–GP11`).
+  - **Perceptual Color & Fade Engine:** Executes CIE $L^*$ ($\gamma = 2.4$) cross-fades, $S^1$ shortest-arc ambient hue walks, and audio-reactive spatial rendering from Core 1 state snapshots.
+  - **Serial & Wireless Services:** Owns all USB `Serial` telemetry, `ArduinoOTA` (`cabinet-lights.local`) firmware updates, and Stage 3 UDP audio capture streaming.
+- **Core 1 — Real-Time Audio DSP & Edge Inference (`setup1()` / `loop1()`):**
+  - **Stage A (Deterministic Fast Loop — Every `4 ms` / 64 samples @ `16 kHz`):** Continuous I2S DMA ingestion from the `INMP441` MEMS microphone (`GP13` BCLK, `GP14` WS, `GP15` DATA), DC blocking, 4-band Direct-Form II Transposed IIR biquad filtering, adaptive noise-floor subtraction, rolling AGC normalization, and instantaneous-attack exponential decay envelopes.
+  - **Stage B (TinyML Semantic Director — Every `1.5 s`):** Low-priority background evaluation of a `[1, 93, 32, 1]` `int8` Log-Mel spectrogram using a 24.5K-parameter 2D Depthwise Separable CNN (`DS-CNN`) to classify the room's macro acoustic state (`NO_MUSIC`, `SPEECH_DIALOGUE`, `AMBIENT_POSTROCK`, `MATH_ROCK`).
+  - **Strict Dual-Core Safety Invariant:** Core 1 must **never** call `Serial`, `analogWrite`, or touch GPIO outputs. All inter-core communication occurs via lock-free / double-buffered shared state structs (`AudioEnergy`, `AudioDspStatus`, `MacroState`).
 
 ---
 
-## 3. TinyML Macro Context Classifier (DS-CNN)
+### 1.2 Two-Tier Finite State Machine (FSM) Priority Hierarchy
 
-The ML model does **not** track beats. It runs in a low-priority thread on Core 1 once every 1.5 seconds to adjust the operational macro state.
+Physical user actions unconditionally preempt automated acoustic states:
 
-- **Input:** 1.5-second audio buffer converted into a [93 × 32 × 1] Log-Mel Spectrogram (32 mel bins, 50–8000 Hz).
-- **Architecture:** 2D Depthwise Separable CNN (DS-CNN).
-  - Parameters: $\approx 24,500$ ($< 30\text{ KB}$ int8 TFLM flatbuffer).
-  - Inference Latency: $< 15\text{ ms}$ on RP2350 Cortex-M33 ($< 1\%$ CPU load).
-- **Target Macro Classes:**
-  1. `NO_MUSIC`: Quiescent ambient hue walk or soft static warm white floor; DSP idles.
-  2. `SPEECH_DIALOGUE`: Solid, flicker-free Warm White task lighting; RGB transients muted to prevent vocal distraction.
-  3. `AMBIENT_POSTROCK`: Slow breathing color washes; extended decay times ($\tau \approx 300\text{–}500\text{ ms}$).
-  4. `MATH_ROCK`: High-energy, crisp transient separation; fast decays ($\tau \approx 40\text{–}80\text{ ms}$) and active stereo ping-pong.
-- **Temporal Hysteresis:** Requires 2 consecutive identical classifications ($\approx 3\text{ seconds}$) before transitioning states.
+1. **Tier 1 — Physical Overrides (Immediate, Zero-Latency on Core 0):**
+   - **Doors Open (`PIN_DOOR_LEFT == HIGH || PIN_DOOR_RIGHT == HIGH`):** Highest priority. Smoothly cross-fades all 8 channels over 5 seconds in perceptual lightness space to 100% calibrated Photopic Task White (`W: 1.00, R: 1.00, G: 0.90, B: 0.86`), overriding all ambient or audio animations.
+   - **Manual Task Override (`PIN_BTN_TASK` / `GP11`):** Engages the same 5-second perceptual cross-fade to Photopic Task White while doors are closed. Automatically resets when toggled again, when `MODE` is tapped, or when a physical door closes.
+   - **Manual Mode Selection (`PIN_BTN_MODE` / `GP8`):** Cycles between non-audio ambient modes (`AMBIENT_MODE_HUE_WALK`, `AMBIENT_MODE_STATIC_HUE`, `AMBIENT_MODE_WARM_LOUNGE`) and `AMBIENT_MODE_AUDIO_REACTIVE`.
+2. **Tier 2 — Acoustic Macro-Context States (Active when in `AUDIO_REACTIVE` Mode with Doors Closed):**
+   - Controlled by the Core 1 TinyML classifier (with 2-step / 3.0-second temporal hysteresis) to dynamically adjust DSP decay time constants ($\tau_k$), stereo ping-pong width, and RGB transient muting.
 
 ---
 
-## 4. Staged Development Order
+## 2. Perceptual Color Science & Door Kinematics (Core 0)
 
-1. **Stage 1 (Current):** Stabilize Core 0 (PWM drivers, door fade, button handling, ambient hue cycle).
-2. **Stage 2:** Implement Core 1 4-band IIR biquad filter bank and exponential decay envelopes. Expose energy/brightness arrays via double-buffering to Core 0.
-3. **Stage 3:** Enable Wi-Fi UDP streaming to capture 1.5-second in-situ audio WAV files directly from the mounted cabinet.
-4. **Stage 4:** Train the int8 DS-CNN classifier, export `model.h`, and link TensorFlow Lite Micro onto Core 1.
+1. **CIE $L^*$ Power-Law Gamma Correction ($\gamma = 2.4$):**
+   - Human brightness perception is non-linear (approximating a power law with $\gamma \approx 2.4$). Linear PWM ramps appear to jump to full brightness in the first 20% of travel.
+   - All internal fade progress, ambient colors, and audio envelopes operate in normalized **perceptual lightness** $L \in [0.0, 1.0]$ and map to 10-bit hardware duty cycle $D \in [0, 1023]$ strictly at the hardware boundary (`led_driver.cpp`):
+     $$D = \left\lfloor \text{clamp}(L, 0.0, 1.0)^{2.4} \times 1023.0 + 0.5 \right\rfloor$$
+2. **5-Second Perceptual Cross-Fade & Mid-Fade Reversal Lock:**
+   - Over `DOOR_FADE_RAMP_MS = 5000UL`, normalized ramp progress $u(t) \in [0.0, 1.0]$ interpolates linearly between the current ambient/audio lightness $L_{c,\text{ambient}}$ and photopic task white $L_{c,\text{open}} = (1.00, 1.00, 0.90, 0.86)$:
+     $$u(t) = u_{\text{start}} + (u_{\text{target}} - u_{\text{start}}) \cdot \min\!\left(1.0,\; \frac{t - t_0}{5000\text{ ms}}\right)$$
+     $$L_c(u) = (1 - u) \cdot L_{c,\text{ambient}} + u \cdot L_{c,\text{open}} \quad \text{for } c \in \{W, R, G, B\}$$
+   - **Mid-Fade Reversal Lock:** Whenever `effectiveWhiteState` (`doorOpen || taskOverrideActive`) changes mid-transition, `rampStartProgress = doorProgress` is latched immediately and `t_0 = millis()` is reset, guaranteeing $C^0$ visual continuity without brightness jumps.
+3. **$S^1$ Shortest-Arc Ambient Hue Walk:**
+   - Every `HUE_CYCLE_PERIOD_MS = 30000UL`, a random target hue $\theta_{\text{target}} \in [0^\circ, 360^\circ)$ is chosen.
+   - Angular interpolation follows the shortest geodesic arc on the circle $S^1$:
+     $$\Delta\theta = \left((\theta_{\text{target}} - \theta_{\text{source}} + 540^\circ) \bmod 360^\circ\right) - 180^\circ \in [-180^\circ, +180^\circ)$$
+     $$\theta(t) = \left(\theta_{\text{source}} + \Delta\theta \cdot \frac{t - t_{\text{hue}}}{30000} + 360^\circ\right) \bmod 360^\circ$$
+
+---
+
+## 3. Real-Time Audio DSP Architecture (Core 1)
+
+### 3.1 INMP441 I2S Digital Audio Ingestion & Bench Characterization
+
+- **32-Bit Stereo Frame Constraint (Critical Hardware Detail):**
+  - The `INMP441` is a 24-bit two's-complement I2S MEMS microphone that requires **64 BCLK cycles per frame** (32 bits per channel slot).
+  - Initializing Earle Philhower's `I2S` library with `i2s.setBitsPerSample(16)` fails (outputs all zeros `00000`) because the PIO state machine only clocks 32 BCLK cycles per frame.
+  - **Mandatory Initialization:** Configure `i2s.setBitsPerSample(32)` at $F_s = 16,000\text{ Hz}$ (`BCLK = 1.024 MHz`) and read 32-bit stereo frame pairs via `i2s.read32(&leftSample, &rightSample)`. With `SEL` (`L/R`) tied to `GND`, the microphone populates the **Left** slot (`leftSample`), and `int16_t pcm16 = static_cast<int16_t>(leftSample >> 16)` extracts the signed 16-bit waveform sample.
+- **Empirical Bench SPL Characterization (`16-bit` scale `0–32,767`):**
+  - **Quiescent Room Floor (`40–50 dB SPL`):** Raw uncalibrated magnitude sits around `~1,600` counts ($\approx 4.8\%$ full scale) due to room noise and mic DC/thermal floor.
+  - **Trebly / Ambient Music (`60–65 dB SPL`):** Raw peaks reach `~1,700–1,800` counts (high-frequency acoustic waves carry far less physical air-displacement energy than bass and attenuate rapidly across a room).
+  - **Moderate Bass-Heavy Music (`65–70 dB SPL`):** Raw peaks reach `~2,000–3,500` counts.
+  - **Sharp Hand Clap at `6–12 inches` (`>95 dB SPL`):** Peaks reach `~26,400` counts ($\approx 81\%$ full scale without clipping).
+- **First-Order DC Blocker:**
+  - Before entering the biquad bank, static DC offset is stripped using a 1st-order high-pass filter ($f_c \approx 12.7\text{ Hz}$ at $F_s = 16\text{ kHz}$, $R = 0.995$):
+    $$y_{\text{dc}}[n] = x[n] - x[n-1] + 0.995 \cdot y_{\text{dc}}[n-1]$$
+
+---
+
+### 3.2 Why FFTs and BPM/PLL Trackers Fail on Math-Rock
+
+1. **Temporal Smearing of Sliding FFTs:**
+   - Resolving low-frequency bass/kick fundamentals ($40\text{–}120\text{ Hz}$) at $F_s = 16\text{ kHz}$ with an FFT requires a 512- to 1024-sample window ($32\text{–}64\text{ ms}$), smearing sharp percussive transients across tens of milliseconds and causing perceptible visual lag.
+2. **Failure of Autocorrelation & Phase-Locked Loops on Odd/Additive Meters:**
+   - Standard beat trackers compute autocorrelation $R(\tau) = \sum_t E(t) E(t - \tau)$ over a 2–4 second window to lock a PLL oscillator onto a single periodic inter-onset interval (assuming isochronous $4/4$ or $3/4$ meters).
+   - In math rock (*Don Caballero, American Football, TTNG, Toe*), rhythmic structure is built from **non-isochronous additive groupings** ($7/8$ as $2+2+3$ or $3+2+2$; $5/4$ as $3+2$; $11/8$ as $3+3+3+2$), alternating time signatures, metric modulations, and rapid two-handed fretboard tapping.
+   - Across a 2–4 second window, asymmetric beat intervals create competing sub-peaks in autocorrelation, causing PLLs and comb filters to lose lock, phase-slip, or flash out of time.
+3. **Zero-Lag Multi-Band Transient Envelopes:**
+   - By splitting the signal through a 4-band minimum-phase IIR biquad bank (updated every `64` samples = **`4.0 ms`**) and triggering **instantaneous-attack ($0\text{ ms}$), exponential-decay envelopes** whenever a band's energy exceeds its adaptive baseline:
+     - Every odd-meter kick, ghost-note snare, and tapped guitar note fires within `< 4 ms` of the physical acoustic waveform.
+     - Steady $4/4$ music also pulses in rock-solid phase without PLL hunting during drum fills.
+
+---
+
+### 3.3 4-Band Direct-Form II Transposed (`DF2T`) IIR Biquad Filter Bank
+
+Each band is implemented as a second-order Direct-Form II Transposed biquad filter executed in single-precision hardware floating point (`VMLA.F32`) on Core 1:
+
+```cpp
+struct BiquadDF2T {
+  float b0, b1, b2; // Numerator coefficients (normalized by a0)
+  float a1, a2;     // Denominator coefficients (normalized by a0)
+  float s1, s2;     // State delay registers
+};
+
+static inline float processBiquad(BiquadDF2T& f, float in) {
+  float out = f.b0 * in + f.s1;
+  f.s1 = f.b1 * in - f.a1 * out + f.s2;
+  f.s2 = f.b2 * in - f.a2 * out;
+  return out;
+}
+```
+
+#### Filter Bank Specification ($F_s = 16,000\text{ Hz}$):
+
+| Band | Name | Passband Range | Nominal $f_0$ | Topology & $Q$ | Musical Target | Visual Channel Assignment | Nominal Decay $\tau_k$ |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Band 1** | **Sub / Kick** | $40\text{–}120\text{ Hz}$ | $80\text{ Hz}$ | Bandpass ($Q = 1.0$) or Low-Pass ($f_c = 110\text{ Hz}, Q = 0.707$) | Kick drum thump & bass guitar root notes | **Symmetric:** Strip 1 & 2 Warm White (`W1, W2`) + Red (`R1, R2`) weight | $\tau_1 = 150\text{ ms}$ ($120\text{–}180\text{ ms}$) |
+| **Band 2** | **Low-Mid / Snare** | $200\text{–}800\text{ Hz}$ | $400\text{ Hz}$ | Bandpass ($Q = 1.2$) | Snare body, fundamental guitar chords, backbeats | **Symmetric:** Strip 1 & 2 Red (`R1, R2`) | $\tau_2 = 90\text{ ms}$ |
+| **Band 3** | **Mid-High / Tapping** | $1.0\text{–}3.5\text{ kHz}$ | $2,200\text{ Hz}$ | Bandpass ($Q = 1.5$) | Two-handed fretboard tapping, guitar arpeggios, rimshots | **Spatial Ping-Pong:** Alternates Strip 1 vs. Strip 2 Green/Blue (`G1/B1` $\leftrightarrow$ `G2/B2`) | $\tau_3 = 60\text{ ms}$ |
+| **Band 4** | **Air / Transients** | $> 5.0\text{ kHz}$ | $5,200\text{ Hz}$ | High-Pass ($Q = 0.707$) | Hi-hat subdivisions, pick clicks, cymbal strikes | **Spatial Counter-Shimmer:** Opposite strip `B/G` accent (`B2/G2` $\leftrightarrow$ `B1/G1`) | $\tau_4 = 40\text{ ms}$ |
+
+#### RBJ Audio EQ Cookbook Coefficient Formulas ($F_s = 16,000\text{ Hz}$):
+
+Given center/cutoff frequency $f_0$ and quality factor $Q$:
+$$\omega_0 = \frac{2\pi f_0}{F_s}, \qquad \alpha = \frac{\sin\omega_0}{2Q}, \qquad a_0 = 1 + \alpha$$
+
+- **Low-Pass Filter:**
+  $$b_0 = \frac{(1 - \cos\omega_0)/2}{a_0}, \quad b_1 = \frac{1 - \cos\omega_0}{a_0}, \quad b_2 = b_0, \quad a_1 = \frac{-2\cos\omega_0}{a_0}, \quad a_2 = \frac{1 - \alpha}{a_0}$$
+- **Constant-0dB-Peak Bandpass Filter:**
+  $$b_0 = \frac{\alpha}{a_0}, \quad b_1 = 0, \quad b_2 = \frac{-\alpha}{a_0}, \quad a_1 = \frac{-2\cos\omega_0}{a_0}, \quad a_2 = \frac{1 - \alpha}{a_0}$$
+- **High-Pass Filter:**
+  $$b_0 = \frac{(1 + \cos\omega_0)/2}{a_0}, \quad b_1 = \frac{-(1 + \cos\omega_0)}{a_0}, \quad b_2 = b_0, \quad a_1 = \frac{-2\cos\omega_0}{a_0}, \quad a_2 = \frac{1 - \alpha}{a_0}$$
+
+---
+
+### 3.4 Adaptive Noise Floor, Rolling AGC & Exponential Envelopes
+
+Evaluated once per 64-sample block ($\Delta t = 4.0\text{ ms}$, or `250 Hz` update rate) for each band $k \in \{1, 2, 3, 4\}$:
+
+1. **Block Rectified Amplitude & Spectral Tilt Pre-Gain:**
+   - Compute average or peak rectified amplitude over the 64 samples, scaled by per-band acoustic compensation gain $g_k$ (boosting Bands 3 & 4 to compensate for high-frequency room attenuation):
+     $$E_k[m] = g_k \cdot \frac{1}{64}\sum_{n=0}^{63} \left|y_k[n]\right|$$
+2. **Slow-Tracking Noise Floor Subtraction ($\tau_{\text{floor}} \approx 500\text{ ms}$):**
+   - A leaky integrator tracks the ambient noise floor $B_k[m]$ ($\alpha_{\text{floor}} = e^{-4 / 500} \approx 0.992$):
+     $$B_k[m] = 0.992 \cdot B_k[m-1] + 0.008 \cdot E_k[m]$$
+   - Subtract the baseline with sensitivity factor $\eta_k \approx 1.3$ to reject continuous room hum:
+     $$R_k[m] = \max\!\left(0.0,\; E_k[m] - \eta_k \cdot B_k[m]\right)$$
+3. **Rolling Automatic Gain Control (AGC Peak Follower):**
+   - Ensures quiet `60 dB SPL` listening and loud `85 dB SPL` sessions both span the full `[0.0, 1.0]` visual range. Each band tracks a rolling peak ceiling $P_k[m]$ with instant expansion and slow decay ($\gamma_{\text{agc}} \approx 0.995$, bounded below by a minimum floor $P_{k,\min}$ so silence never amplifies noise):
+     $$P_k[m] = \begin{cases} R_k[m] & \text{if } R_k[m] > P_k[m-1] \\ \max\!\left(P_{k,\min},\; 0.995 \cdot P_k[m-1] + 0.005 \cdot R_k[m]\right) & \text{otherwise} \end{cases}$$
+     $$\hat{E}_k[m] = \text{clamp}\!\left(\frac{R_k[m]}{P_k[m]},\; 0.0,\; 1.0\right)$$
+4. **Instantaneous-Attack, Exponential-Decay Envelopes ($I_k[m]$):**
+   - Attack is instantaneous ($0\text{ ms}$); release follows true exponential decay $e^{-\Delta t / \tau_k}$:
+     $$I_k[m] = \begin{cases} \hat{E}_k[m] & \text{if } \hat{E}_k[m] \ge I_k[m-1] \\ I_k[m-1] \cdot e^{-4\text{ ms} / \tau_k} & \text{otherwise} \end{cases}$$
+   - Per-block decay multipliers at $\Delta t = 4\text{ ms}$ (in default `MATH_ROCK` / crisp transient mode):
+     - **Band 1 ($\tau_1 = 150\text{ ms}$):** $\text{decay}_1 = e^{-4/150} \approx 0.9737$
+     - **Band 2 ($\tau_2 = 90\text{ ms}$):** $\text{decay}_2 = e^{-4/90} \approx 0.9565$
+     - **Band 3 ($\tau_3 = 60\text{ ms}$):** $\text{decay}_3 = e^{-4/60} \approx 0.9355$
+     - **Band 4 ($\tau_4 = 40\text{ ms}$):** $\text{decay}_4 = e^{-4/40} \approx 0.9048$
+5. **Spatial Ping-Pong Onset Parity (`pingPongParity`):**
+   - When Band 3 (Mid-High tapping) or Band 4 (Air) exhibits a positive onset edge ($\hat{E}_3[m] - I_3[m-1] > \theta_{\text{onset}}$ after a `45 ms` refractory cooldown), Core 1 toggles `pingPongParity ^= 1`.
+
+---
+
+### 3.5 8-Channel Visual Choreography & Spatial Counterpoint (Core 0)
+
+In `AMBIENT_MODE_AUDIO_REACTIVE`, the 8 channels (`s1.w, s1.r, s1.g, s1.b` and `s2.w, s2.r, s2.g, s2.b`) are synthesized from three perceptual layers scaled by `ambientBrightness`:
+
+1. **Steady Ambient Baseline Floor (`15%–20%`):**
+   - Prevents the cabinet from strobing into pitch black between musical notes:
+     $$\text{Channel Output} = \text{Steady Baseline Floor (20\%)} + \text{Dynamic Transient Envelope (0–80\%)}$$
+2. **Symmetric Low-End Foundation (`Strip 1 == Strip 2` on `W` and `R`):**
+   - **Band 1 (`subBass`):** Drives `W1` and `W2` symmetrically (plus a warm `0.35×` contribution to `R1, R2`), anchoring kick drums and bass notes evenly across the entire cabinet.
+   - **Band 2 (`lowMid`):** Drives `R1` and `R2` symmetrically for snare hits and chord weight.
+3. **Asymmetric Stereo Ping-Pong (`Strip 1` vs. `Strip 2` on `G` and `B`):**
+   - **Band 3 (`highMid` tapped guitars) & Band 4 (`treble` cymbals/hi-hats):** Alternate across `G1/B1` and `G2/B2` according to `pingPongParity` and **Dynamic Spatial Width**:
+     - When overall musical energy is sparse, both strips blend toward a unified wash.
+     - As transient density increases, stereo separation expands so consecutive tapped guitar notes and hi-hat subdivisions physically bounce left-to-right between Strip 1 and Strip 2.
+
+---
+
+## 4. TinyML Macro-Context Classifier (Stage 4 — Core 1)
+
+### 4.1 Semantic Role
+
+The neural network **never** attempts to detect individual beats. It executes once every **1.5 seconds** in a low-priority background slice on Core 1 ($< 15\text{ ms}$ inference time, $< 1\%$ CPU load) to identify the overarching acoustic environment and adjust DSP parameters accordingly.
+
+### 4.2 Log-Mel Spectrogram Feature Extraction
+
+- **Audio Window:** `1.5 seconds` @ $16,000\text{ Hz}$ mono PCM $= 24,000\text{ samples}$.
+- **STFT Framing:** `512`-sample (`32 ms`) periodic Hann window with `256`-sample (`16 ms`, 50% overlap) hop stride $\rightarrow$ `93` time frames.
+- **Mel Filterbank:** `32` triangular Mel bins spanning $50\text{ Hz} \text{ to } 8,000\text{ Hz}$, log-compressed ($\log_{10}(E_{\text{mel}} + \epsilon)$) and quantized to `int8` ($[-128, +127]$).
+- **Input Tensor Dimensions:** `[1, 93, 32, 1]` (`2,976 bytes`).
+
+### 4.3 2D Depthwise Separable CNN (`DS-CNN`) Topology
+
+```text
+Input Tensor: [1, 93, 32, 1] (int8 Log-Mel Spectrogram)
+  │
+  ├─► Stem Conv2D: 16 filters, 3×3 kernel, stride (2,2), BatchNorm + ReLU   ──► [47 × 16 × 16]
+  ├─► DS-Block 1:  DWConv 3×3 (s 1,1) + PWConv 1×1 (32 filters) + BN + ReLU ──► [47 × 16 × 32]
+  ├─► DS-Block 2:  DWConv 3×3 (s 2,2) + PWConv 1×1 (32 filters) + BN + ReLU ──► [24 ×  8 × 32]
+  ├─► DS-Block 3:  DWConv 3×3 (s 1,1) + PWConv 1×1 (64 filters) + BN + ReLU ──► [24 ×  8 × 64]
+  ├─► DS-Block 4:  DWConv 3×3 (s 2,2) + PWConv 1×1 (64 filters) + BN + ReLU ──► [12 ×  4 × 64]
+  ├─► GlobalAveragePooling2D (collapses 12×4 spatial grid -> time-shift invariant) ──► [64]
+  └─► Dense (64 -> 4 units) + Softmax ──► [NO_MUSIC, SPEECH_DIALOGUE, AMBIENT_POSTROCK, MATH_ROCK]
+```
+
+- **Footprint on RP2350:** `~24,500` parameters (`~28 KB` `int8` TFLite Micro flatbuffer in Flash, `~32 KB` Tensor Arena in SRAM, `~1.8 MMACs`, `~14 ms` execution via `CMSIS-NN`).
+
+### 4.4 Target Macro Classes & Temporal Hysteresis
+
+| Class ID | Macro State | Acoustic Signature | Lighting & DSP Parameter Adaptation |
+| :---: | :--- | :--- | :--- |
+| **0** | `STATE_NO_MUSIC` | Silence, room floor, HVAC / appliance hum | Reverts to quiescent 30s $S^1$ ambient hue walk; DSP transient envelopes muted. |
+| **1** | `STATE_SPEECH_DIALOGUE` | Conversation, podcasts, TV dialogue | Solid, flicker-free Warm White / Warm Lounge glow; **all RGB transients muted** so speech never causes distracting flashes. |
+| **2** | `STATE_AMBIENT_POSTROCK` | Slow chord swells, low spectral flux | Smooth breathing color washes; extended decay constants ($\tau_1 = 400\text{ ms}$, $\tau_{3,4} = 250\text{ ms}$); stereo ping-pong disabled (symmetric wash). |
+| **3** | `STATE_MATH_ROCK` | High spectral flux, odd-meter drums, fretboard tapping | Crisp transient pops; fast decay constants ($\tau = 150, 90, 60, 40\text{ ms}$); **full stereo ping-pong active**. |
+
+- **Temporal Hysteresis:** Requires `HYSTERESIS_CONFIRMATION_COUNT = 2` consecutive identical classifications (`~3.0 seconds`) before transitioning `current_state`, preventing momentary vocal shouts or brief musical pauses from flipping modes prematurely.
+
+---
+
+## 5. Staged Development Roadmap
+
+1. **Phase 1 — Complete Bench Verification (Core 0 Door/Button Behavior + Core 1 Mic Sanity):**
+   - Flash current Stage 1 firmware over USB and verify all 8 MOSFET channels, 5-second perceptual door fade (including mid-fade reversals via the breadboard reed switch jumpers), all 4 satellite pushbuttons (`MODE`, `UP`, `DOWN`, `TASK`), and verify live `INMP441` I2S baseline/clap readings on `Serial`.
+2. **Phase 2 — Wireless Autonomy (Non-Blocking Wi-Fi, `ArduinoOTA` & UDP Telemetry) $\rightarrow$ Cabinet Installation:**
+   - Implement a non-blocking Wi-Fi + `ArduinoOTA` (`cabinet-lights.local`) manager on Core 0 (using an untracked `include/secrets.h` for Wi-Fi credentials so the 200 Hz PWM/door loop never stalls even if Wi-Fi is unreachable).
+   - Add lightweight UDP wireless telemetry so `Serial`-style logs (`[DOOR]`, `[BTN]`, `[AUDIO]`) can be monitored from the Linux workstation once USB is unplugged.
+   - Verify OTA flashing on the bench, then **physically install the controller into the cabinet**.
+3. **Phase 3 — In-Situ Audio DSP & Spatial Choreography (Flashed & Tuned via OTA):**
+   - Implement the Core 1 DC blocker, 4-band `DF2T` IIR biquad filter bank, adaptive noise floor + rolling AGC peak tracker, instantaneous-attack exponential decay envelopes, and `pingPongParity` detector.
+   - Add `AMBIENT_MODE_AUDIO_REACTIVE` on Core 0 and tune the per-band gains and thresholds in-situ against the real room acoustics over Wi-Fi.
+4. **Phase 4 — In-Situ UDP Audio Capture & TinyML DS-CNN Classifier:**
+   - Stream 1.5-second in-situ 16 kHz PCM clips over Wi-Fi UDP from the mounted cabinet microphone to build the training dataset (`NO_MUSIC`, `SPEECH_DIALOGUE`, `AMBIENT_POSTROCK`, `MATH_ROCK`).
+   - Train the `int8` 2D DS-CNN classifier, export `include/model.h`, and flash via OTA onto Core 1 with 2-step hysteresis state transitions.

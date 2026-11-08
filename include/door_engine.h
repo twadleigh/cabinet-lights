@@ -7,11 +7,10 @@ enum DoorState {
   DOOR_STATE_OPEN   = 1
 };
 
-enum AmbientMode : uint8_t {
-  AMBIENT_MODE_HUE_WALK    = 0, // 30s continuous S^1 random hue walk
-  AMBIENT_MODE_STATIC_HUE  = 1, // Holds current hue (tap Mode again to step +60 deg or exit)
-  AMBIENT_MODE_WARM_LOUNGE = 2, // Soft warm white + amber blend
-  AMBIENT_MODE_COUNT       = 3
+enum ControllerMode : uint8_t {
+  MODE_NORMAL = 0, // Door closed: 30s S^1 hue walk @ ambientBrightness; Door open: 5s fade to full Task White
+  MODE_DEBUG  = 1, // Cycles all 8 MOSFET LED channels (W1->R1->G1->B1->W2->R2->G2->B2) at 100% brightness
+  MODE_COUNT  = 2
 };
 
 void doorEngineInit(bool initialDoorOpen);
@@ -19,6 +18,6 @@ void doorEngineSetDoorState(bool isOpen);
 void doorEngineHandleButton(ButtonEvent event);
 void doorEngineUpdate(StripColor& outS1, StripColor& outS2);
 
-bool doorEngineIsTaskOverrideActive();
 float doorEngineGetAmbientBrightness();
-AmbientMode doorEngineGetAmbientMode();
+ControllerMode doorEngineGetMode();
+const char* doorEngineGetModeLabel();

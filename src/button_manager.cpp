@@ -12,10 +12,10 @@ struct DebouncedPin {
 static DebouncedPin doorLeft  = { PIN_DOOR_LEFT,  LOW, LOW, 0 };
 static DebouncedPin doorRight = { PIN_DOOR_RIGHT, LOW, LOW, 0 };
 
-static DebouncedPin btnMode   = { PIN_BTN_MODE, HIGH, HIGH, 0 };
-static DebouncedPin btnUp     = { PIN_BTN_UP,   HIGH, HIGH, 0 };
-static DebouncedPin btnDown   = { PIN_BTN_DOWN, HIGH, HIGH, 0 };
-static DebouncedPin btnTask   = { PIN_BTN_TASK, HIGH, HIGH, 0 };
+static DebouncedPin btnModeNext   = { PIN_BTN_MODE_NEXT,   HIGH, HIGH, 0 };
+static DebouncedPin btnModePrev   = { PIN_BTN_MODE_PREV,   HIGH, HIGH, 0 };
+static DebouncedPin btnBrightUp   = { PIN_BTN_BRIGHT_UP,   HIGH, HIGH, 0 };
+static DebouncedPin btnBrightDown = { PIN_BTN_BRIGHT_DOWN, HIGH, HIGH, 0 };
 
 constexpr unsigned long DEBOUNCE_DELAY_MS = 35;
 
@@ -43,31 +43,31 @@ void buttonManagerInit() {
   pinMode(PIN_DOOR_LEFT,  INPUT_PULLUP);
   pinMode(PIN_DOOR_RIGHT, INPUT_PULLUP);
 
-  pinMode(PIN_BTN_MODE,   INPUT_PULLUP);
-  pinMode(PIN_BTN_UP,     INPUT_PULLUP);
-  pinMode(PIN_BTN_DOWN,   INPUT_PULLUP);
-  pinMode(PIN_BTN_TASK,   INPUT_PULLUP);
+  pinMode(PIN_BTN_MODE_NEXT,   INPUT_PULLUP);
+  pinMode(PIN_BTN_MODE_PREV,   INPUT_PULLUP);
+  pinMode(PIN_BTN_BRIGHT_UP,   INPUT_PULLUP);
+  pinMode(PIN_BTN_BRIGHT_DOWN, INPUT_PULLUP);
 }
 
 ButtonEvent buttonManagerUpdate() {
-  bool dummyDoorFell = false;
-  bool modeFell = false;
-  bool upFell   = false;
-  bool downFell = false;
-  bool taskFell = false;
+  bool dummyDoorFell   = false;
+  bool modeNextFell    = false;
+  bool modePrevFell    = false;
+  bool brightUpFell    = false;
+  bool brightDownFell  = false;
 
   // Update all pins every tick so debounce timers stay accurate
-  updatePin(doorLeft,  dummyDoorFell);
-  updatePin(doorRight, dummyDoorFell);
-  updatePin(btnMode,   modeFell);
-  updatePin(btnUp,     upFell);
-  updatePin(btnDown,   downFell);
-  updatePin(btnTask,   taskFell);
+  updatePin(doorLeft,      dummyDoorFell);
+  updatePin(doorRight,     dummyDoorFell);
+  updatePin(btnModeNext,   modeNextFell);
+  updatePin(btnModePrev,   modePrevFell);
+  updatePin(btnBrightUp,   brightUpFell);
+  updatePin(btnBrightDown, brightDownFell);
 
-  if (taskFell) return BTN_EVENT_TASK_TAP;
-  if (modeFell) return BTN_EVENT_MODE_TAP;
-  if (upFell)   return BTN_EVENT_UP_TAP;
-  if (downFell) return BTN_EVENT_DOWN_TAP;
+  if (modeNextFell)   return BTN_EVENT_MODE_NEXT;
+  if (modePrevFell)   return BTN_EVENT_MODE_PREV;
+  if (brightUpFell)   return BTN_EVENT_BRIGHT_UP;
+  if (brightDownFell) return BTN_EVENT_BRIGHT_DOWN;
 
   return BTN_EVENT_NONE;
 }
