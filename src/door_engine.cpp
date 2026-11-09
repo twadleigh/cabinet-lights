@@ -5,24 +5,23 @@
 static DoorState systemDoorState = DOOR_STATE_CLOSED;
 
 static float doorProgress = 0.0f; // 0.0 = fully ambient, 1.0 = fully photopic task white
-static float rampStartProgress = 0.0f;
-static unsigned long lastDoorTransitionTime = 0;
+static unsigned long lastDoorUpdateTime = 0;
 
 static ControllerMode currentMode = MODE_NORMAL;
 
 // 13-step low-end-weighted perceptual brightness lookup table (clean integer percentages)
 // Paired with PWM_PEDESTAL_TICKS = 20 and PWM_MIN_PULSE_TICKS = 30:
 //   Step 0  (0%):     0.0 ticks (Strictly Off)
-//   Step 1  (4%):    ~33% duty of 30-tick matched pulse (1 kHz 0 <-> 30 dither)
-//   Step 2  (5%):    ~56% duty of 30-tick matched pulse (1 kHz 0 <-> 30 dither)
+//   Step 1  (4%):    ~33% duty of 30-tick matched pulse (20 kHz 0 <-> 30 dither)
+//   Step 2  (5%):    ~56% duty of 30-tick matched pulse (20 kHz 0 <-> 30 dither)
 //   Step 3  (7%):    32.6 ticks (continuous >= 30-tick matched dark-room floor)
-//   Step 4  (9%):    43.1 ticks
+//   Step 4  (9%):    43.1 ticks (Default startup level)
 //   Step 5  (12%):   66.2 ticks
 //   Step 6  (16%):  112.2 ticks
 //   Step 7  (22%):  218.0 ticks
 //   Step 8  (30%):  436.0 ticks
 //   Step 9  (40%):  850.0 ticks
-//   Step 10 (55%): 1801.0 ticks (Default startup level)
+//   Step 10 (55%): 1801.0 ticks
 //   Step 11 (75%): 3771.0 ticks
 //   Step 12 (100%): 7500.0 ticks
 static constexpr uint8_t BRIGHTNESS_STEP_COUNT = 13;
@@ -31,17 +30,17 @@ static constexpr float BRIGHTNESS_TABLE[BRIGHTNESS_STEP_COUNT] = {
   0.04f, // Step 1:  4% (Sub-threshold 0 <-> 30 tick dither, ~33%)
   0.05f, // Step 2:  5% (Sub-threshold 0 <-> 30 tick dither, ~56%)
   0.07f, // Step 3:  7% (Continuous >30 ticks matched floor)
-  0.09f, // Step 4:  9%
+  0.09f, // Step 4:  9% (Default startup level)
   0.12f, // Step 5:  12%
   0.16f, // Step 6:  16%
   0.22f, // Step 7:  22%
   0.30f, // Step 8:  30%
   0.40f, // Step 9:  40%
-  0.55f, // Step 10: 55% (Default startup level)
+  0.55f, // Step 10: 55%
   0.75f, // Step 11: 75%
   1.00f  // Step 12: 100%
 };
-static constexpr uint8_t DEFAULT_BRIGHTNESS_INDEX = 10; // 50.0%
+static constexpr uint8_t DEFAULT_BRIGHTNESS_INDEX = 4; // Level 4: 9% (level 0 is off)
 static uint8_t brightnessIndex = DEFAULT_BRIGHTNESS_INDEX;
 static float ambientBrightness = BRIGHTNESS_TABLE[DEFAULT_BRIGHTNESS_INDEX];
 
@@ -53,26 +52,21 @@ static unsigned long lastHueSampleTime = 0;
 static uint8_t debugChannelIndex = 0;
 static unsigned long lastDebugStepTime = 0;
 
-static const char* const DEBUG_CHANNEL_NAMES[8] = {
-  "W1 (GP16)",
-  "R1 (GP18)",
-  "G1 (GP19)",
-  "B1 (GP17)",
-  "W2 (GP20)",
-  "R2 (GP26)",
-  "G2 (GP27)",
-  "B2 (GP21)"
+struct DebugChannel {
+  const char* name;
+  const char* label;
+  uint8_t strip;
+  float StripColor::*component;
 };
-
-static const char* const DEBUG_MODE_LABELS[8] = {
-  "DEBUG:W1",
-  "DEBUG:R1",
-  "DEBUG:G1",
-  "DEBUG:B1",
-  "DEBUG:W2",
-  "DEBUG:R2",
-  "DEBUG:G2",
-  "DEBUG:B2"
+static const DebugChannel DEBUG_CHANNELS[8] = {
+  {"W1 (GP16)", "DEBUG:W1", 0, &StripColor::w},
+  {"R1 (GP18)", "DEBUG:R1", 0, &StripColor::r},
+  {"G1 (GP19)", "DEBUG:G1", 0, &StripColor::g},
+  {"B1 (GP17)", "DEBUG:B1", 0, &StripColor::b},
+  {"W2 (GP20)", "DEBUG:W2", 1, &StripColor::w},
+  {"R2 (GP26)", "DEBUG:R2", 1, &StripColor::r},
+  {"G2 (GP27)", "DEBUG:G2", 1, &StripColor::g},
+  {"B2 (GP21)", "DEBUG:B2", 1, &StripColor::b}
 };
 
 static float shortestAngularDelta(float from, float to) {
@@ -83,7 +77,6 @@ static float shortestAngularDelta(float from, float to) {
 static void hueToRGB(float h, float v, float &r, float &g, float &b) {
   float c = v;
   float x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f));
-  float m = 0.0f;
 
   if (h < 60.0f)       { r = c; g = x; b = 0; }
   else if (h < 120.0f) { r = x; g = c; b = 0; }
@@ -92,7 +85,6 @@ static void hueToRGB(float h, float v, float &r, float &g, float &b) {
   else if (h < 300.0f) { r = x; g = 0; b = c; }
   else                 { r = c; g = 0; b = x; }
 
-  r += m; g += m; b += m;
 }
 
 static void applyModeChange(ControllerMode newMode, const char* directionLabel) {
@@ -103,10 +95,9 @@ static void applyModeChange(ControllerMode newMode, const char* directionLabel) 
     lastDebugStepTime = millis();
     snprintf(logBuf, sizeof(logBuf),
              "[BTN] Mode %s -> DEBUG (8-Ch Max Test, starting at %s)",
-             directionLabel, DEBUG_CHANNEL_NAMES[debugChannelIndex]);
+             directionLabel, DEBUG_CHANNELS[debugChannelIndex].name);
     telemetryLogLine(logBuf);
   } else {
-    lastHueSampleTime = millis();
     snprintf(logBuf, sizeof(logBuf),
              "[BTN] Mode %s -> NORMAL (Ambient Hue Walk + Door Task White)",
              directionLabel);
@@ -115,10 +106,10 @@ static void applyModeChange(ControllerMode newMode, const char* directionLabel) 
 }
 
 void doorEngineInit(bool initialDoorOpen) {
+  randomSeed(rp2040.hwrand32());
   systemDoorState = initialDoorOpen ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
   doorProgress = initialDoorOpen ? 1.0f : 0.0f;
-  rampStartProgress = doorProgress;
-  lastDoorTransitionTime = millis();
+  lastDoorUpdateTime = millis();
   lastHueSampleTime = millis();
 
   currentMode = MODE_NORMAL;
@@ -133,19 +124,36 @@ void doorEngineInit(bool initialDoorOpen) {
   lastDebugStepTime = millis();
 }
 
+static void advanceDoorProgress(unsigned long now) {
+  float step = static_cast<float>(now - lastDoorUpdateTime) / DOOR_FADE_RAMP_MS;
+  lastDoorUpdateTime = now;
+  doorProgress = constrain(doorProgress + (systemDoorState == DOOR_STATE_OPEN ? step : -step), 0.0f, 1.0f);
+}
+
 void doorEngineSetDoorState(bool isOpen) {
   DoorState newState = isOpen ? DOOR_STATE_OPEN : DOOR_STATE_CLOSED;
   if (newState != systemDoorState) {
+    advanceDoorProgress(millis());
     systemDoorState = newState;
-    rampStartProgress = doorProgress; // Lock progress for smooth mid-fade reversals
-    lastDoorTransitionTime = millis();
     telemetryLogLine(isOpen ? "[DOOR] Transition -> OPEN (Fading to 100% Task White)"
                             : "[DOOR] Transition -> CLOSED (Fading to Ambient)");
   }
 }
 
-void doorEngineHandleButton(ButtonEvent event) {
+static void changeBrightness(bool up) {
+  if (up && brightnessIndex + 1 < BRIGHTNESS_STEP_COUNT) ++brightnessIndex;
+  if (!up && brightnessIndex > 0) --brightnessIndex;
+  ambientBrightness = BRIGHTNESS_TABLE[brightnessIndex];
+  int briTenths = static_cast<int>(ambientBrightness * 1000.0f + 0.5f);
   char logBuf[112];
+  snprintf(logBuf, sizeof(logBuf),
+           "[BTN] Ambient Brightness %s (Btn %u) -> %d.%d%% (Step %u/%u)",
+           up ? "UP" : "DOWN", up ? 3u : 4u, briTenths / 10, briTenths % 10,
+           static_cast<unsigned>(brightnessIndex), static_cast<unsigned>(BRIGHTNESS_STEP_COUNT - 1));
+  telemetryLogLine(logBuf);
+}
+
+void doorEngineHandleButton(ButtonEvent event) {
   switch (event) {
     case BTN_EVENT_MODE_NEXT: {
       ControllerMode nextMode = static_cast<ControllerMode>((currentMode + 1) % MODE_COUNT);
@@ -159,35 +167,12 @@ void doorEngineHandleButton(ButtonEvent event) {
       break;
     }
 
-    case BTN_EVENT_BRIGHT_UP: {
-      if (brightnessIndex + 1 < BRIGHTNESS_STEP_COUNT) {
-        brightnessIndex++;
-      }
-      ambientBrightness = BRIGHTNESS_TABLE[brightnessIndex];
-      int briTenths = static_cast<int>(ambientBrightness * 1000.0f + 0.5f);
-      snprintf(logBuf, sizeof(logBuf),
-               "[BTN] Ambient Brightness UP (Btn 3) -> %d.%d%% (Step %u/%u)",
-               briTenths / 10, briTenths % 10,
-               static_cast<unsigned>(brightnessIndex),
-               static_cast<unsigned>(BRIGHTNESS_STEP_COUNT - 1));
-      telemetryLogLine(logBuf);
+    case BTN_EVENT_BRIGHT_UP:
+      changeBrightness(true);
       break;
-    }
-
-    case BTN_EVENT_BRIGHT_DOWN: {
-      if (brightnessIndex > 0) {
-        brightnessIndex--;
-      }
-      ambientBrightness = BRIGHTNESS_TABLE[brightnessIndex];
-      int briTenths = static_cast<int>(ambientBrightness * 1000.0f + 0.5f);
-      snprintf(logBuf, sizeof(logBuf),
-               "[BTN] Ambient Brightness DOWN (Btn 4) -> %d.%d%% (Step %u/%u)",
-               briTenths / 10, briTenths % 10,
-               static_cast<unsigned>(brightnessIndex),
-               static_cast<unsigned>(BRIGHTNESS_STEP_COUNT - 1));
-      telemetryLogLine(logBuf);
+    case BTN_EVENT_BRIGHT_DOWN:
+      changeBrightness(false);
       break;
-    }
 
     case BTN_EVENT_NONE:
     default:
@@ -213,10 +198,7 @@ void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
   float delta = shortestAngularDelta(sourceHue, targetHue);
   currentHue = fmodf(sourceHue + delta * tHue + 360.0f, 360.0f);
 
-  unsigned long elapsedDoor = now - lastDoorTransitionTime;
-  float tDoor = (elapsedDoor >= DOOR_FADE_RAMP_MS) ? 1.0f : ((float)elapsedDoor / (float)DOOR_FADE_RAMP_MS);
-  float targetProgress = (systemDoorState == DOOR_STATE_OPEN) ? 1.0f : 0.0f;
-  doorProgress = rampStartProgress + (targetProgress - rampStartProgress) * tDoor;
+  advanceDoorProgress(now);
 
   // 2. If in DEBUG mode, auto-cycle all 8 MOSFET channels at 100% max brightness
   if (currentMode == MODE_DEBUG) {
@@ -225,24 +207,16 @@ void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
       debugChannelIndex = (debugChannelIndex + 1) % 8;
       char logBuf[64];
       snprintf(logBuf, sizeof(logBuf), "[DEBUG] Channel -> %s @ 100%%",
-               DEBUG_CHANNEL_NAMES[debugChannelIndex]);
+               DEBUG_CHANNELS[debugChannelIndex].name);
       telemetryLogLine(logBuf);
     }
 
     outS1 = {0.0f, 0.0f, 0.0f, 0.0f};
     outS2 = {0.0f, 0.0f, 0.0f, 0.0f};
 
-    switch (debugChannelIndex) {
-      case 0: outS1.w = 1.0f; break;
-      case 1: outS1.r = 1.0f; break;
-      case 2: outS1.g = 1.0f; break;
-      case 3: outS1.b = 1.0f; break;
-      case 4: outS2.w = 1.0f; break;
-      case 5: outS2.r = 1.0f; break;
-      case 6: outS2.g = 1.0f; break;
-      case 7: outS2.b = 1.0f; break;
-      default: break;
-    }
+    const DebugChannel& channel = DEBUG_CHANNELS[debugChannelIndex];
+    StripColor& strip = channel.strip == 0 ? outS1 : outS2;
+    strip.*(channel.component) = 1.0f;
     return;
   }
 
@@ -271,7 +245,7 @@ ControllerMode doorEngineGetMode() {
 
 const char* doorEngineGetModeLabel() {
   if (currentMode == MODE_DEBUG) {
-    return DEBUG_MODE_LABELS[debugChannelIndex & 0x07];
+    return DEBUG_CHANNELS[debugChannelIndex & 0x07].label;
   }
   return "NORMAL";
 }

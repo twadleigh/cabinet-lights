@@ -2,6 +2,8 @@
 
 This document is the authoritative specification for the **Cabinet Lighting Controller's** long-term visual kinematics, real-time Core 1 I2S audio DSP pipeline, math-rock transient envelope follower, and TinyML (2D DS-CNN) acoustic macro-context classifier.
 
+Current Phase 2 firmware implements I2S/DC-blocked peak telemetry, atomic audio snapshots, OTA pause/resume, Normal/Debug modes, and hardware-timed PWM dithering. The 4-band bank, AGC, spatial mapping, and classifier below are the Phase 3/4 design.
+
 ---
 
 ## 1. System Partitioning & Priority Hierarchy
@@ -11,7 +13,7 @@ This document is the authoritative specification for the **Cabinet Lighting Cont
 The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision FPU and ARMv8-M DSP SIMD extensions) is partitioned across its two physical cores to guarantee zero-jitter PWM rendering alongside real-time audio processing:
 
 - **Core 0 — Hardware IO, Perceptual Kinematics & Network Services (`setup()` / `loop()` @ ~200 Hz / 5 ms):**
-  - **8-Channel Ultrasonic PWM (`20 kHz`, 10-bit `0–1023`):** Drives two 12V RGBW LED strips via a `74AHCT541N` 5V octal buffer and 8× `IRLZ44N` low-side MOSFETs. Channels are paired across 4 hardware PWM slices on the right header:
+  - **8-Channel Ultrasonic PWM (`20 kHz`, 7500-tick (6.67 ns/tick)):** Drives two 12V RGBW LED strips via a `74AHCT541N` 5V octal buffer and 8× `IRLZ44N` low-side MOSFETs. Channels are paired across 4 hardware PWM slices on the right header:
     - **Slice 0:** `GP16` (`0A` $\rightarrow$ `W1`), `GP17` (`0B` $\rightarrow$ `B1`)
     - **Slice 1:** `GP18` (`1A` $\rightarrow$ `R1`), `GP19` (`1B` $\rightarrow$ `G1`)
     - **Slice 2:** `GP20` (`2A` $\rightarrow$ `W2`), `GP21` (`2B` $\rightarrow$ `B2`)
@@ -32,8 +34,7 @@ Physical user actions unconditionally preempt automated acoustic states:
 
 1. **Tier 1 — Physical Overrides (Immediate, Zero-Latency on Core 0):**
    - **Doors Open (`PIN_DOOR_LEFT == HIGH || PIN_DOOR_RIGHT == HIGH`):** Highest priority. Smoothly cross-fades all 8 channels over 5 seconds in perceptual lightness space to 100% calibrated Photopic Task White (`W: 1.00, R: 1.00, G: 0.90, B: 0.86`), overriding all ambient or audio animations.
-   - **Manual Task Override (`PIN_BTN_TASK` / `GP11`):** Engages the same 5-second perceptual cross-fade to Photopic Task White while doors are closed. Automatically resets when toggled again, when `MODE` is tapped, or when a physical door closes.
-   - **Manual Mode Selection (`PIN_BTN_MODE` / `GP8`):** Cycles between non-audio ambient modes (`AMBIENT_MODE_HUE_WALK`, `AMBIENT_MODE_STATIC_HUE`, `AMBIENT_MODE_WARM_LOUNGE`) and `AMBIENT_MODE_AUDIO_REACTIVE`.
+   - **Manual Mode Selection:** Button 1 (`PIN_BTN_MODE_NEXT` / `GP8`) and Button 2 (`PIN_BTN_MODE_PREV` / `GP9`) cycle Normal and Debug. Normal runs the 30-second hue walk and door fade; Debug cycles eight channels at full duty. Buttons 3/4 (`GP10`/`GP11`) adjust ambient brightness (or future mode-specific parameters). Debug is an explicit bench override of door rendering.
 2. **Tier 2 — Acoustic Macro-Context States (Active when in `AUDIO_REACTIVE` Mode with Doors Closed):**
    - Controlled by the Core 1 TinyML classifier (with 2-step / 3.0-second temporal hysteresis) to dynamically adjust DSP decay time constants ($\tau_k$), stereo ping-pong width, and RGB transient muting.
 
@@ -43,13 +44,11 @@ Physical user actions unconditionally preempt automated acoustic states:
 
 1. **CIE $L^*$ Power-Law Gamma Correction ($\gamma = 2.4$):**
    - Human brightness perception is non-linear (approximating a power law with $\gamma \approx 2.4$). Linear PWM ramps appear to jump to full brightness in the first 20% of travel.
-   - All internal fade progress, ambient colors, and audio envelopes operate in normalized **perceptual lightness** $L \in [0.0, 1.0]$ and map to 10-bit hardware duty cycle $D \in [0, 1023]$ strictly at the hardware boundary (`led_driver.cpp`):
-     $$D = \left\lfloor \text{clamp}(L, 0.0, 1.0)^{2.4} \times 1023.0 + 0.5 \right\rfloor$$
-2. **5-Second Perceptual Cross-Fade & Mid-Fade Reversal Lock:**
-   - Over `DOOR_FADE_RAMP_MS = 5000UL`, normalized ramp progress $u(t) \in [0.0, 1.0]$ interpolates linearly between the current ambient/audio lightness $L_{c,\text{ambient}}$ and photopic task white $L_{c,\text{open}} = (1.00, 1.00, 0.90, 0.86)$:
-     $$u(t) = u_{\text{start}} + (u_{\text{target}} - u_{\text{start}}) \cdot \min\!\left(1.0,\; \frac{t - t_0}{5000\text{ ms}}\right)$$
-     $$L_c(u) = (1 - u) \cdot L_{c,\text{ambient}} + u \cdot L_{c,\text{open}} \quad \text{for } c \in \{W, R, G, B\}$$
-   - **Mid-Fade Reversal Lock:** Whenever `effectiveWhiteState` (`doorOpen || taskOverrideActive`) changes mid-transition, `rampStartProgress = doorProgress` is latched immediately and `t_0 = millis()` is reset, guaranteeing $C^0$ visual continuity without brightness jumps.
+   - All internal colors operate in normalized perceptual lightness $L \in [0,1]$. At the hardware boundary, active ticks are $A=L^{2.4}(7500-20)$. Zero lightness is strictly off; for $0<A<10$, dither between 0 and 30 ticks with probability $A/10$. Otherwise dither between adjacent integers around $20+A$, with full scale equal to 7500 ticks.
+   - `PWM_PEDESTAL_TICKS = 20` (133 ns), `PWM_MIN_PULSE_TICKS = 30` (200 ns), and 6.67 ns native ticks match the measured gate-drive floor. The RAM-resident 20 kHz wrap ISR uses Q0.16 accumulators and paired register writes. Hardware wrap is 7499, giving 7500 ticks per period; compare 7500 is fully on.
+2. **5-Second Perceptual Cross-Fade & Constant-Speed Reversal:**
+   - Integrate progress each update: $u_{n+1}=\operatorname{clamp}(u_n+s\Delta t/5000\mathrm{ms},0,1)$, where $s=+1$ for an open door and $s=-1$ otherwise.
+   - Render $L_c=(1-u)L_{c,\mathrm{ambient}}+uL_{c,\mathrm{open}}$, with open white $(W,R,G,B)=(1,1,0.90,0.86)$. Reversals preserve progress and speed; a reversal at 40% returns to ambient in two seconds. Hue and fade state advance during Debug mode.
 3. **$S^1$ Shortest-Arc Ambient Hue Walk:**
    - Every `HUE_CYCLE_PERIOD_MS = 30000UL`, a random target hue $\theta_{\text{target}} \in [0^\circ, 360^\circ)$ is chosen.
    - Angular interpolation follows the shortest geodesic arc on the circle $S^1$:
@@ -214,7 +213,7 @@ Input Tensor: [1, 93, 32, 1] (int8 Log-Mel Spectrogram)
 | Class ID | Macro State | Acoustic Signature | Lighting & DSP Parameter Adaptation |
 | :---: | :--- | :--- | :--- |
 | **0** | `STATE_NO_MUSIC` | Silence, room floor, HVAC / appliance hum | Reverts to quiescent 30s $S^1$ ambient hue walk; DSP transient envelopes muted. |
-| **1** | `STATE_SPEECH_DIALOGUE` | Conversation, podcasts, TV dialogue | Solid, flicker-free Warm White / Warm Lounge glow; **all RGB transients muted** so speech never causes distracting flashes. |
+| **1** | `STATE_SPEECH_DIALOGUE` | Conversation, podcasts, TV dialogue | Solid, flicker-free warm white glow; **all RGB transients muted** so speech never causes distracting flashes. |
 | **2** | `STATE_AMBIENT_POSTROCK` | Slow chord swells, low spectral flux | Smooth breathing color washes; extended decay constants ($\tau_1 = 400\text{ ms}$, $\tau_{3,4} = 250\text{ ms}$); stereo ping-pong disabled (symmetric wash). |
 | **3** | `STATE_MATH_ROCK` | High spectral flux, odd-meter drums, fretboard tapping | Crisp transient pops; fast decay constants ($\tau = 150, 90, 60, 40\text{ ms}$); **full stereo ping-pong active**. |
 
@@ -225,7 +224,7 @@ Input Tensor: [1, 93, 32, 1] (int8 Log-Mel Spectrogram)
 ## 5. Staged Development Roadmap
 
 1. **Phase 1 — Complete Bench Verification (Core 0 Door/Button Behavior + Core 1 Mic Sanity):**
-   - Flash current Stage 1 firmware over USB and verify all 8 MOSFET channels, 5-second perceptual door fade (including mid-fade reversals via the breadboard reed switch jumpers), all 4 satellite pushbuttons (`MODE`, `UP`, `DOWN`, `TASK`), and verify live `INMP441` I2S baseline/clap readings on `Serial`.
+   - Flash current Stage 1 firmware over USB and verify all 8 MOSFET channels, 5-second perceptual door fade (including mid-fade reversals via the breadboard reed switch jumpers), all 4 satellite pushbuttons (`MODE NEXT`, `MODE PREV`, `UP`, `DOWN`), and verify live `INMP441` I2S baseline/clap readings on `Serial`.
 2. **Phase 2 — Wireless Autonomy (Non-Blocking Wi-Fi, `ArduinoOTA` & UDP Telemetry) $\rightarrow$ Cabinet Installation:**
    - Implement a non-blocking Wi-Fi + `ArduinoOTA` (`cabinet-lights.local`) manager on Core 0 (using an untracked `include/secrets.h` for Wi-Fi credentials so the 200 Hz PWM/door loop never stalls even if Wi-Fi is unreachable).
    - Add lightweight UDP wireless telemetry so `Serial`-style logs (`[DOOR]`, `[BTN]`, `[AUDIO]`) can be monitored from the Linux workstation once USB is unplugged.

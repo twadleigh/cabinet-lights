@@ -1,12 +1,38 @@
 #include "audio_dsp.h"
 #include "config.h"
+#pragma GCC diagnostic push
+// Arduino-Pico I2S/Stream hides Print::write(uint8_t) in the dependency API.
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #include <I2S.h>
+#pragma GCC diagnostic pop
+#include <atomic>
 
 static I2S i2s(INPUT);
-static volatile AudioDspStatus dspStatus = AUDIO_DSP_UNINIT;
-static volatile bool otaPauseRequested = false;
-static volatile bool otaPausedAck = false;
-static volatile AudioEnergy sharedEnergy = {0.0f, 0.0f, 0.0f, 0.0f};
+// Atomic payload fields keep the seqlock free of C++ data races as well as
+// preventing torn multi-band snapshots across the two physical cores.
+static_assert(std::atomic<float>::is_always_lock_free, "Audio snapshots must be lock-free");
+static_assert(std::atomic<uint32_t>::is_always_lock_free, "Audio sequence must be lock-free");
+static std::atomic<AudioDspStatus> dspStatus{AUDIO_DSP_UNINIT};
+static std::atomic<bool> otaPauseRequested{false};
+static std::atomic<bool> otaPausedAck{false};
+static std::atomic<uint32_t> pauseGeneration{0};
+static std::atomic<uint32_t> pausedGeneration{0};
+static std::atomic<uint32_t> energySequence{0};
+static std::atomic<float> sharedEnergy[4]{};
+static float dcStateX = 0.0f;
+static float dcStateY = 0.0f;
+static float peakHold = 0.0f;
+
+static void publishEnergy() {
+  energySequence.fetch_add(1);
+  __dmb();
+  sharedEnergy[0].store(peakHold);
+  sharedEnergy[1].store(peakHold * 0.7f);
+  sharedEnergy[2].store(peakHold * 0.5f);
+  sharedEnergy[3].store(peakHold * 0.3f);
+  __dmb();
+  energySequence.fetch_add(1);
+}
 
 void audioDspCore1Init() {
   i2s.setBCLK(PIN_I2S_BCLK);
@@ -14,33 +40,37 @@ void audioDspCore1Init() {
   i2s.setBitsPerSample(32);
 
   // Strict Dual-Core Safety: Never call Serial from Core 1.
-  // Report initialization state to Core 0 via volatile status flag.
+  // Report initialization state to Core 0 via atomic status flag.
   if (!i2s.begin(16000)) {
     dspStatus = AUDIO_DSP_FAULT;
-    while (1) {
-      delay(100);
-    }
+    return; // Keep loop1 alive to acknowledge OTA even after an I2S fault.
   }
   dspStatus = AUDIO_DSP_ONLINE;
 }
 
-static float dcStateX = 0.0f;
-static float dcStateY = 0.0f;
-static float peakHold = 0.0f;
-
 void audioDspCore1Update() {
   if (otaPauseRequested) {
-    if (!otaPausedAck) {
+    const uint32_t requestedGeneration = pauseGeneration.load();
+    if (!otaPausedAck || pausedGeneration.load() != requestedGeneration) {
       if (dspStatus == AUDIO_DSP_ONLINE) {
-        // Must call i2s.end() on Core 1 (the core that called i2s.begin())
-        // so irq_set_enabled(DMA_IRQ_0, false) disables DMA_IRQ_0 on Core 1's NVIC
-        // and only unclaims the two I2S DMA channels (leaving CYW43 Wi-Fi DMA intact).
+        // End on the owning core: never free AudioBufferManager buffers while
+        // Core 1 is inside read32(). Also disables DMA IRQs on the correct NVIC
+        // and leaves CYW43 Wi-Fi DMA channels intact.
         i2s.end();
       }
+      dcStateX = dcStateY = peakHold = 0.0f;
+      publishEnergy();
+      dspStatus = AUDIO_DSP_PAUSED;
+      pausedGeneration = requestedGeneration;
       otaPausedAck = true;
     }
     delay(5);
     return;
+  }
+
+  if (otaPausedAck) {
+    audioDspCore1Init(); // Restart I2S only on its owning core.
+    otaPausedAck = false;
   }
 
   if (dspStatus != AUDIO_DSP_ONLINE) {
@@ -68,18 +98,24 @@ void audioDspCore1Update() {
     }
   }
 
-  sharedEnergy.subBass = peakHold;
-  sharedEnergy.lowMid  = peakHold * 0.7f;
-  sharedEnergy.highMid = peakHold * 0.5f;
-  sharedEnergy.treble  = peakHold * 0.3f;
+  publishEnergy();
 }
 
-void audioDspStopForOta() {
+bool audioDspStopForOta() {
+  // A fresh generation prevents a stale ACK from a just-cancelled PREP being
+  // mistaken for a new pause while Core 1 is restarting I2S.
+  const uint32_t generation = pauseGeneration.fetch_add(1) + 1;
   otaPauseRequested = true;
   unsigned long startMs = millis();
-  while (!otaPausedAck && (millis() - startMs < 200)) {
+  while (millis() - startMs < 200) {
+    if (otaPausedAck && pausedGeneration.load() == generation) return true;
     delay(1);
   }
+  return false;
+}
+
+void audioDspResumeAfterOta() {
+  otaPauseRequested = false;
 }
 
 AudioDspStatus getAudioDspStatus() {
@@ -87,8 +123,16 @@ AudioDspStatus getAudioDspStatus() {
 }
 
 void getAudioEnergySnapshot(AudioEnergy& snapshot) {
-  snapshot.subBass = sharedEnergy.subBass;
-  snapshot.lowMid  = sharedEnergy.lowMid;
-  snapshot.highMid = sharedEnergy.highMid;
-  snapshot.treble  = sharedEnergy.treble;
+  for (;;) {
+    uint32_t before = energySequence.load();
+    if (before & 1u) continue;
+    __dmb();
+    AudioEnergy candidate{sharedEnergy[0].load(), sharedEnergy[1].load(),
+                          sharedEnergy[2].load(), sharedEnergy[3].load()};
+    __dmb();
+    if (before == energySequence.load()) {
+      snapshot = candidate;
+      return;
+    }
+  }
 }

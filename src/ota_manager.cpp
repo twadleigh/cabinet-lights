@@ -10,6 +10,7 @@
 #pragma GCC diagnostic pop
 #include <LittleFS.h>
 #include <string.h>
+#include <atomic>
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -26,7 +27,12 @@ enum WifiState : uint8_t {
 
 static WifiState wifiState = WIFI_STATE_DISABLED;
 static bool otaStarted = false;
-static volatile bool fsReady = false;
+static std::atomic<bool> fsReady{false};
+static bool otaPrepPending = false;
+static bool otaUploadActive = false;
+static bool otaResumePending = false;
+static unsigned long otaPrepMs = 0;
+static constexpr unsigned long OTA_PREP_TIMEOUT_MS = 15000UL;
 static unsigned long lastConnectAttemptMs = 0;
 static WiFiUDP udpTelemetry;
 
@@ -50,8 +56,15 @@ static void setupArduinoOtaOnce() {
 
   ArduinoOTA.setPort(OTA_PORT);
   ArduinoOTA.setHostname(OTA_HOSTNAME);
+#ifdef OTA_PASSWORD
+  if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
+#endif
 
   ArduinoOTA.onStart([]() {
+    otaUploadActive = true;
+    otaPrepPending = false;
+    // PREP pauses before Update.begin() can erase flash. This second,
+    // idempotent call also covers clients that skip the preflight handshake.
     telemetryLogLine("[OTA] Requesting Core 1 to shut down I2S DMA...");
     audioDspStopForOta();
     telemetryLogLine("[OTA] Core 1 I2S stopped. Receiving firmware...");
@@ -65,6 +78,11 @@ static void setupArduinoOtaOnce() {
     char msg[64];
     snprintf(msg, sizeof(msg), "[OTA] Error (%u)", static_cast<unsigned>(error));
     telemetryLogLine(msg);
+    otaUploadActive = false;
+    otaPrepPending = false;
+    // ArduinoOTA may still close/write its Update file after this callback.
+    // Restart DMA only once handle() has returned and flash cleanup is done.
+    otaResumePending = true;
   });
 
   ArduinoOTA.begin();
@@ -97,6 +115,12 @@ void otaManagerInit() {
 }
 
 void otaManagerUpdate() {
+  // Run even after Wi-Fi disconnects so an abandoned PREP cannot silence audio.
+  if (otaPrepPending && !otaUploadActive && millis() - otaPrepMs >= OTA_PREP_TIMEOUT_MS) {
+    otaPrepPending = false;
+    audioDspResumeAfterOta();
+    telemetryLogLine("[OTA] Preparation expired; audio resumed.");
+  }
   if (wifiState == WIFI_STATE_DISABLED) {
     return;
   }
@@ -123,10 +147,15 @@ void otaManagerUpdate() {
       int n = udpTelemetry.read(cmdBuf, sizeof(cmdBuf) - 1);
       if (n > 0) {
         cmdBuf[n] = '\0';
-        if (strncmp(cmdBuf, "OTA_PREP", 8) == 0) {
+        if (strcmp(cmdBuf, "OTA_PREP") == 0 && !otaUploadActive) {
           IPAddress remIp = udpTelemetry.remoteIP();
           uint16_t remPort = udpTelemetry.remotePort();
-          audioDspStopForOta();
+          otaPrepPending = true;
+          otaPrepMs = millis();
+          if (!audioDspStopForOta()) {
+            telemetryLogLine("[OTA] Core 1 pause timed out; withholding OTA_READY.");
+            return;
+          }
           udpTelemetry.beginPacket(remIp, remPort);
           udpTelemetry.write(reinterpret_cast<const uint8_t*>("OTA_READY"), 9);
           udpTelemetry.endPacket();
@@ -136,6 +165,10 @@ void otaManagerUpdate() {
     }
 
     ArduinoOTA.handle();
+    if (otaResumePending) {
+      otaResumePending = false;
+      audioDspResumeAfterOta();
+    }
   } else {
     if (wifiState == WIFI_STATE_CONNECTED) {
       wifiState = WIFI_STATE_DISCONNECTED;
@@ -164,8 +197,8 @@ void telemetryLogLine(const char* line) {
   Serial.println(line);
 
   if (wifiState == WIFI_STATE_CONNECTED && otaStarted) {
-    IPAddress bcast = WiFi.localIP();
-    bcast[3] = 255; // Subnet broadcast (e.g. 192.168.x.255)
+    IPAddress bcast(static_cast<uint32_t>(WiFi.localIP()) |
+                    ~static_cast<uint32_t>(WiFi.subnetMask()));
     if (udpTelemetry.beginPacket(bcast, UDP_TELEMETRY_PORT)) {
       udpTelemetry.write(reinterpret_cast<const uint8_t*>(line), strlen(line));
       udpTelemetry.write('\n');

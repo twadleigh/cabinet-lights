@@ -68,7 +68,7 @@ void loop() {
   StripColor s1, s2;
   doorEngineUpdate(s1, s2);
 
-  // 5. Commit Outputs to MOSFETs via 74AHCT541 (1 kHz Sigma-Delta Temporal Dither)
+  // 5. Commit Outputs to MOSFETs via 74AHCT541 (20 kHz hardware-timed Sigma-Delta dither)
   setStripOutputs(s1, s2);
 
   // 6. Periodic Diagnostic Telemetry (Every 1 second over Serial + UDP)
@@ -107,7 +107,7 @@ void loop() {
     telemetryLogLine(logBuf);
   }
 
-  delay(1); // ~1000 Hz update loop on Core 0 for flicker-free Sigma-Delta PWM dithering
+  delay(5); // ~200 Hz control loop; PWM ISR independently dithers at 20 kHz
 }
 
 // ============================================================================

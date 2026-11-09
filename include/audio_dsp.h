@@ -4,7 +4,8 @@
 enum AudioDspStatus : uint8_t {
   AUDIO_DSP_UNINIT = 0,
   AUDIO_DSP_ONLINE = 1,
-  AUDIO_DSP_FAULT  = 2
+  AUDIO_DSP_FAULT  = 2,
+  AUDIO_DSP_PAUSED = 3
 };
 
 struct AudioEnergy {
@@ -16,6 +17,8 @@ struct AudioEnergy {
 
 void audioDspCore1Init();
 void audioDspCore1Update();
-void audioDspStopForOta();
+// Returns true only after Core 1 has stopped I2S DMA.
+bool audioDspStopForOta();
+void audioDspResumeAfterOta();
 AudioDspStatus getAudioDspStatus();
 void getAudioEnergySnapshot(AudioEnergy& snapshot);

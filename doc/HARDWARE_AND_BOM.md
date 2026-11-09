@@ -2,6 +2,8 @@
 
 This document serves as the permanent hardware reference for the **Cabinet Lighting Controller**, synthesized from the build logs, schematic guides, and bench bring-up records.
 
+PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and `PWM_MIN_PULSE_TICKS = 30`. A RAM-resident hardware wrap ISR performs Sigma-Delta dithering between off/30 ticks below the matched floor and adjacent integer ticks above it.
+
 ---
 
 ## 1. Complete Bill of Materials (BOM)
@@ -50,7 +52,7 @@ This document serves as the permanent hardware reference for the **Cabinet Light
 | :---: | :--- | :--- | :--- |
 | **2** | **12V Analog RGBW (WRGB) LED Strips** *(plus two 1-segment 3-LED test cuts)* | `12V DC` common-anode (`+12V`, `W`, `B`, `R`, `G` 5-pad layout), 3-LED series cut segments (`~20 mA` per color per segment; `~1.0–1.5A` per channel full strip) | Strip 1 (Left) and Strip 2 (Right) cabinet illumination. Purely resistive/diode loads. |
 | **2** | **Magnetic Door Reed Switches** (e.g., EPLZON / Sodial / Adafruit PID 375) | Normally Closed (`NC` / Form B: magnet near = switch closed to `GND` = `LOW`; door open = magnet away = switch open = pulled `HIGH`) | Discrete Left Door (`GP0`) and Right Door (`GP1`) sensing. |
-| **4** | **Momentary Tactile Pushbuttons** | SPST Normally Open (`NO`) momentary switches | 4-button satellite pod (`Mode/Advance`, `Brightness Up`, `Brightness Down`, `Task/Warm White`), active-LOW. |
+| **4** | **Momentary Tactile Pushbuttons** | SPST Normally Open (`NO`) momentary switches | 4-button satellite pod (`Mode Next`, `Mode Prev`, `Brightness Up`, `Brightness Down`), active-LOW. |
 | **1** | **Large Double-Sided FR4 Perfboard** | Plated through-hole (`PTH`), `0.1"` (`2.54 mm`) grid, `~9 × 15 cm` or `10 × 16 cm` | Main circuit board substrate. Corner mounting holes enlarged with a `1/8"` (`3.2 mm`) HSS bit to fit `M3` hardware. |
 | **4** | **Nylon L-Shaped PCB Mounting Brackets ("Arcade Feet" / JAMMA Feet)** | `90°` insulated nylon brackets (`~20 mm` standoff height) + **4× `M3 × 6 mm` machine screws/nuts/washers** + **4× `#4 × 1/2"` or `#6 × 1/2"` pan-head wood screws** | Fastens the perfboard corners underneath the `3/4"` cabinet shelf (pre-drilled `3/8"` deep with a drill stop) with outward-facing flanges and full underside clearance. |
 | — | **Heavy Solid Bus Wire** | **`18 AWG` or `20 AWG` bare solid tinned copper wire** | High-current `MOSFET Source (Pin 3)` bus to Star Ground Hub, and `+12V` main anode trunk from `+12V IN` to bulk cap, buck `IN+`, and both strip `+12V` terminals. |
@@ -74,7 +76,7 @@ To prevent `6A–10A` `20 kHz` PWM switching currents from inducing ground bounc
    - **Raspberry Pi Pico 2 W** seated in dual `1×20` female sockets with its Micro-USB port facing the bottom edge (equipped with a magnetic USB breakaway tip). In this orientation, **Pins 1–20** run along the **right** header column (bottom-to-top) and **Pins 21–40** run along the **left** header column (top-to-bottom).
    - **Right Edge Inputs:**
      - **Bottom-Right:** 3-position blue screw terminal block for the Left & Right Door Reed Switches (`GP0`, `GP1`, and `Pin 3 GND`), with the **2× `0.1 µF` polarized barrel debounce capacitors** mounted immediately behind the terminal (tested on the bench via jumper wires to the yellow mini-breadboard).
-     - **Mid/Upper-Right Edge:** The **4 momentary tactile pushbuttons** (`MODE`, `UP`, `DOWN`, `TASK`) mounted in a vertical column along the right edge of the perfboard for direct thumb/finger access.
+     - **Mid/Upper-Right Edge:** The **4 momentary tactile pushbuttons** (`MODE NEXT`, `MODE PREV`, `UP`, `DOWN`) mounted in a vertical column along the right edge of the perfboard for direct thumb/finger access.
    - **Top-Right (Above Pico):** The **I2S Digital MEMS Microphone breakout** (blue PCB) mounted in the quiet logic corner away from the power stage.
 2. **Center — Level-Shifting, Gate Drive & 5V Regulation Zone (Pico Pins 21–40 Side):**
    - Directly to the left of the Pico's PWM header (`Pins 21–32`) sits the **`SN74AHCT541N` in its 20-pin narrow DIP socket**, with the red dipped **`104J` (`0.1 µF`) film bypass capacitor** mounted right at the bottom of the socket across $V_{CC}$ and `GND`.
@@ -197,11 +199,11 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 | **Pin 8** | `GND` | *Quiet Logic Ground (Spare)* | **Pin 33** | `AGND` | *Unused / Analog Ground* |
 | **Pin 9** | `GP6` | *Unused / Spare* | **Pin 32** | `GP27` (PWM 5B) | **`74AHCT541` Pin 9 (`A7`)** $\rightarrow$ **Strip 2 Green (`G2`)** (`PIN_PWM_G2 = 27`) |
 | **Pin 10** | `GP7` | *Unused / Spare* | **Pin 31** | `GP26` (PWM 5A) | **`74AHCT541` Pin 8 (`A6`)** $\rightarrow$ **Strip 2 Red (`R2`)** (`PIN_PWM_R2 = 26`) |
-| **Pin 11** | `GP8` | **Button 1: Mode / Advance** (`PIN_BTN_MODE = 8`, `INPUT_PULLUP`) | **Pin 30** | `RUN` | *Skipped / Do Not Use* (Hardware Reset line) |
-| **Pin 12** | `GP9` | **Button 2: Brightness Up** (`PIN_BTN_UP = 9`, `INPUT_PULLUP`) | **Pin 29** | `GP22` | *Skipped / Spare GPIO* |
+| **Pin 11** | `GP8` | **Button 1: Mode Next** (`PIN_BTN_MODE_NEXT = 8`, `INPUT_PULLUP`) | **Pin 30** | `RUN` | *Skipped / Do Not Use* (Hardware Reset line) |
+| **Pin 12** | `GP9` | **Button 2: Mode Prev** (`PIN_BTN_MODE_PREV = 9`, `INPUT_PULLUP`) | **Pin 29** | `GP22` | *Skipped / Spare GPIO* |
 | **Pin 13** | `GND` | **Shared Common `GND` Return for all 4 Pushbuttons** | **Pin 28** | `GND` | *Skipped* (Quiet Logic `GND` pad) |
-| **Pin 14** | `GP10` | **Button 3: Brightness Down** (`PIN_BTN_DOWN = 10`, `INPUT_PULLUP`) | **Pin 27** | `GP21` (PWM 2B) | **`74AHCT541` Pin 7 (`A5`)** $\rightarrow$ **Strip 2 Blue (`B2`)** (`PIN_PWM_B2 = 21`) |
-| **Pin 15** | `GP11` | **Button 4: Task / Warm White** (`PIN_BTN_TASK = 11`, `INPUT_PULLUP`) | **Pin 26** | `GP20` (PWM 2A) | **`74AHCT541` Pin 6 (`A4`)** $\rightarrow$ **Strip 2 White (`W2`)** (`PIN_PWM_W2 = 20`) |
+| **Pin 14** | `GP10` | **Button 3: Brightness Up** (`PIN_BTN_BRIGHT_UP = 10`, `INPUT_PULLUP`) | **Pin 27** | `GP21` (PWM 2B) | **`74AHCT541` Pin 7 (`A5`)** $\rightarrow$ **Strip 2 Blue (`B2`)** (`PIN_PWM_B2 = 21`) |
+| **Pin 15** | `GP11` | **Button 4: Brightness Down** (`PIN_BTN_BRIGHT_DOWN = 11`, `INPUT_PULLUP`) | **Pin 26** | `GP20` (PWM 2A) | **`74AHCT541` Pin 6 (`A4`)** $\rightarrow$ **Strip 2 White (`W2`)** (`PIN_PWM_W2 = 20`) |
 | **Pin 16** | `GP12` | *Unused / Spare* | **Pin 25** | `GP19` (PWM 1B) | **`74AHCT541` Pin 5 (`A3`)** $\rightarrow$ **Strip 1 Green (`G1`)** (`PIN_PWM_G1 = 19`) |
 | **Pin 17** | `GP13` | **INMP441 Mic `CLK` (`SCK` / `BCLK`)** (`PIN_I2S_BCLK = 13`) | **Pin 24** | `GP18` (PWM 1A) | **`74AHCT541` Pin 4 (`A2`)** $\rightarrow$ **Strip 1 Red (`R1`)** (`PIN_PWM_R1 = 18`) |
 | **Pin 18** | `GND` | **INMP441 Mic `GND` & `SEL` (`L/R`)** (Quiet Audio Ground) | **Pin 23** | `GND` | *Skipped* (Quiet Logic `GND` pad) |
@@ -270,10 +272,10 @@ Looking at the front face of an `IRLZ44N` (TO-220 text facing you, legs pointing
 
 #### 2. 4-Button Satellite Control Pod (Active-LOW Inputs Clustered Around Pin 13 GND)
 All four momentary pushbuttons use internal pull-ups (`INPUT_PULLUP`), require no external resistors, and share **Pico Physical Pin 13 (`GND`)**:
-- **Button 1 (Mode / State Cycle Advance):** Lead A $\rightarrow$ **Pico Physical Pin 11 (`GP8`)** (`PIN_BTN_MODE = 8`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
-- **Button 2 (Brightness Up):** Lead A $\rightarrow$ **Pico Physical Pin 12 (`GP9`)** (`PIN_BTN_UP = 9`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
-- **Button 3 (Brightness Down):** Lead A $\rightarrow$ **Pico Physical Pin 14 (`GP10`)** (`PIN_BTN_DOWN = 10`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
-- **Button 4 (Task / Warm White Toggle):** Lead A $\rightarrow$ **Pico Physical Pin 15 (`GP11`)** (`PIN_BTN_TASK = 11`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
+- **Button 1 (Mode Next):** Lead A $\rightarrow$ **Pico Physical Pin 11 (`GP8`)** (`PIN_BTN_MODE_NEXT = 8`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
+- **Button 2 (Mode Prev):** Lead A $\rightarrow$ **Pico Physical Pin 12 (`GP9`)** (`PIN_BTN_MODE_PREV = 9`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
+- **Button 3 (Brightness Up):** Lead A $\rightarrow$ **Pico Physical Pin 14 (`GP10`)** (`PIN_BTN_BRIGHT_UP = 10`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
+- **Button 4 (Brightness Down):** Lead A $\rightarrow$ **Pico Physical Pin 15 (`GP11`)** (`PIN_BTN_BRIGHT_DOWN = 11`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
 
 #### 3. `INMP441` I2S Digital MEMS Microphone Breakout (6 Pins)
 Positioned near the bottom-left turn of the Pico 2 W header (`Pins 17–20`) and wired with `30 AWG` Kynar wire:

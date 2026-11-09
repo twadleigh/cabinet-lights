@@ -17,7 +17,8 @@
 3. **Compile Verification Gate:**
    - Every code modification must compile cleanly with zero warnings or errors before you finish your turn.
    - Invoke PlatformIO directly (avoiding shell wrappers so command approvals prefix-match cleanly):
-     - `/home/tracy/.platformio/penv/bin/pio run` (run with `BypassSandbox: true` since `~/.platformio` resides outside the workspace sandbox).
+     - Run `python3 scripts/bootstrap.py` on a fresh clone, then invoke `.venv/bin/pio run -e pico2w-usb -e pico2w-ota` from the project root.
+     - Use the current host permissions; never hardcode another workstation’s home directory.
 
 ---
 
@@ -34,7 +35,8 @@
 
 ## 3. Strict Pinout & Wiring Invariants (DO NOT CHANGE)
 
-- **8-Channel PWM (Level-shifted via `74AHCT541N` to `IRLZ44N` gates, 20 kHz ultrasonic, 10-bit `0–1023`):**
+- **8-Channel PWM (Level-shifted via `74AHCT541N` to `IRLZ44N` gates, 20 kHz ultrasonic, 7500-tick (6.67 ns/tick)):**
+  - Hardware-timed Sigma-Delta uses `PWM_PEDESTAL_TICKS = 20` and `PWM_MIN_PULSE_TICKS = 30`.
   - **Strip 1:** White = `GP16` (Pin 21), Blue = `GP17` (Pin 22), Red = `GP18` (Pin 24), Green = `GP19` (Pin 25)
   - **Strip 2:** White = `GP20` (Pin 26), Blue = `GP21` (Pin 27), Red = `GP26` (Pin 31), Green = `GP27` (Pin 32)
 - **Door Reed Switches (Active-LOW, `INPUT_PULLUP` + `0.1 µF` cap to GND, Grounded/`LOW` = Closed, `HIGH` = Open):**
@@ -42,11 +44,11 @@
   - Right Door Reed: `GP1` (Pin 2)
   - Common Switch Return: `GND` (Pin 3)
 - **Satellite Pushbuttons (Active-LOW, `INPUT_PULLUP`, Falling Edge = Press):**
-  - Button 1 (Mode / Advance): `GP8` (Pin 11)
-  - Button 2 (Brightness Up): `GP9` (Pin 12)
+  - Button 1 (Mode Next): `GP8` (Pin 11)
+  - Button 2 (Mode Prev): `GP9` (Pin 12)
   - Common Button Return: `GND` (Pin 13)
-  - Button 3 (Brightness Down): `GP10` (Pin 14)
-  - Button 4 (Task / Warm White): `GP11` (Pin 15)
+  - Button 3 (Brightness Up): `GP10` (Pin 14)
+  - Button 4 (Brightness Down): `GP11` (Pin 15)
 - **INMP441 I2S Microphone (Digital PCM, Mono with `SEL`/`L/R` tied to `GND` on Pin 18, `3.3V` on Pin 36):**
   - `BCLK`: `GP13` (Pin 17)
   - `WS` (`LRCLK`): `GP14` (Pin 19) — *(Hardware constraint: Earle Philhower `I2S` forces `WS = BCLK + 1`)*
@@ -58,12 +60,12 @@
 ## 4. Dual-Core Partitioning & Coding Rules
 
 - **Core 0 (`setup()` / `loop()` @ ~200 Hz):**
-  - Owns all `Serial` telemetry, `analogWrite` PWM outputs, reed switch / button debouncing, door fade kinematics, and future Wi-Fi/OTA services.
+  - Owns all `Serial` telemetry, hardware PWM outputs and their RAM-resident wrap ISR, reed switch / button debouncing, door fade kinematics, and Wi-Fi/OTA services.
   - Default startup door state is always **CLOSED** (`LOW`).
-  - Door open (or manual Task Override) triggers a 5-second linear cross-fade in CIE $L^*$ perceptual space ($\gamma = 2.4$) to photopic task white (`W: 1.0, R: 1.0, G: 0.90, B: 0.86`).
-  - Door closed runs ambient modes (`HUE_WALK`, `STATIC_HUE`, `WARM_LOUNGE`, and Stage 2 `AUDIO_REACTIVE`).
+  - Door open triggers a 5-second linear cross-fade in CIE $L^*$ perceptual space ($\gamma = 2.4$) to photopic task white (`W: 1.0, R: 1.0, G: 0.90, B: 0.86`).
+  - `MODE_NORMAL`: door closed runs a 30-second random shortest-arc hue walk with 13 brightness steps (0–100%, default level 4 / 9%); door open fades to task white at constant speed. `MODE_DEBUG`: cycles all eight channels at 100% for 1.5 seconds each. Audio-reactive rendering is planned for Phase 3.
 - **Core 1 (`setup1()` / `loop1()`):**
-  - Dedicated exclusively to real-time 16 kHz I2S audio ingestion, DC blocking, 4-band `DF2T` IIR biquad filtering, adaptive noise-floor + rolling AGC normalization, exponential envelope followers, and background TinyML macro-context classification.
+  - Currently owns 16 kHz I2S ingestion, DC blocking, peak-hold telemetry, and OTA pause/resume. Phase 3/4 extends this with 4-band `DF2T` IIR filtering, adaptive noise-floor + rolling AGC normalization, envelope followers, and background TinyML classification.
   - **Strict Dual-Core Safety Rule:** Never call `analogWrite`, touch GPIO outputs, or print to `Serial` from Core 1. Core 1 communicates with Core 0 strictly via lock-free / double-buffered shared state structs.
 - **Audio DSP Guardrails:**
   - Do **not** refactor audio processing into an FFT visualizer or phase-locked BPM loop. The system uses a deterministic 4-band Direct-Form II Transposed IIR biquad bank + instantaneous-attack exponential decay envelopes (for math-rock odd-meter resilience) paired with a 4-class DS-CNN macro classifier. See [doc/AUDIO_VISION.md](doc/AUDIO_VISION.md).

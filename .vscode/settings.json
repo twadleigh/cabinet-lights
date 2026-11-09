@@ -1,0 +1,28 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+  "clangd.enable": true,
+  "platformio-ide.disablePIOHomeStartup": true,
+  "files.associations": {
+    "*.h": "cpp",
+    "platformio.ini": "ini"
+  },
+  "files.watcherExclude": {
+    "**/.pio/**": true,
+    "**/.venv/**": true
+  },
+  "search.exclude": {
+    "**/.pio": true,
+    "**/.venv": true
+  },
+  "terminal.integrated.env.osx": {
+    "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+  },
+  "terminal.integrated.env.linux": {
+    "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}"
+  },
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**/toolchain-rp2040-earlephilhower/bin/arm-none-eabi-*"
+  ]
+}

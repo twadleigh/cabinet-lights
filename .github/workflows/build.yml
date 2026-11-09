@@ -1,0 +1,19 @@
+name: Firmware and host checks
+on: [push, pull_request]
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('platformio.ini', 'requirements-dev.txt') }}
+      - run: python3 scripts/bootstrap.py
+      - run: python3 scripts/check_host.py

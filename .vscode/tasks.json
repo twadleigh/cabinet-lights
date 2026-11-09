@@ -1,0 +1,136 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Cabinet: Bootstrap",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "scripts/bootstrap.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Cabinet: Build both environments",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/pio",
+      "args": [
+        "run",
+        "-e",
+        "pico2w-usb",
+        "-e",
+        "pico2w-ota"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Cabinet: Host regression checks",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/check_host.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Cabinet: Upload via OTA",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/pio",
+      "args": [
+        "run",
+        "-e",
+        "pico2w-ota",
+        "-t",
+        "upload"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Cabinet: Upload via USB",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/pio",
+      "args": [
+        "run",
+        "-e",
+        "pico2w-usb",
+        "-t",
+        "upload"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Cabinet: Wireless telemetry",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/python",
+      "args": [
+        "scripts/udp_monitor.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Cabinet: USB serial monitor",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/pio",
+      "args": [
+        "device",
+        "monitor",
+        "-e",
+        "pico2w-usb",
+        "--baud",
+        "115200"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Cabinet: Refresh C++ index",
+      "type": "process",
+      "command": "${workspaceFolder}/.venv/bin/pio",
+      "args": [
+        "run",
+        "-e",
+        "pico2w-ota",
+        "-t",
+        "compiledb"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
