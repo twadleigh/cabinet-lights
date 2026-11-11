@@ -30,7 +30,7 @@ Use snake_case for new filenames when naming is unconstrained; preserve required
 - **Framework & Core:** Earle Philhower `arduino-pico` (`rpipico2w`) via PlatformIO.
 - **Power Delivery:**
   - `3.3V` logic from Pico Pin 36 (`3V3_OUT`) powering the `INMP441` mic and internal GPIO pull-ups.
-  - `5.0V` rail from a buck converter (inductor marked `4R7`; controller identity unconfirmed) powering Pico `VSYS` (Pin 39) and the `SN74AHCT541N` octal buffer (`Pin 20 VCC`, bypassed with a `0.1 µF` `104J` film cap across Pins 20 & 10).
+  - `5.0V` rail from a buck converter (inductor marked `4R7`; controller identity unconfirmed) powering Pico `VSYS` (Pin 39) and the `SN74AHCT541N` octal buffer (`Pin 20 VCC`, bypassed with a `0.1 µF` `104J` film cap physically across Pins 20 & 1; GND chains 1 → 19 → 10).
   - `12V DC` external supply (`150W` cabinet / `12V 1–2A` bench) with `1000 µF` bulk cap and star-ground topology driving two 4-channel (RGBW) LED strips via 8× `IRLZ44N` low-side MOSFETs (`180 Ω` series gate resistors + `10 kΩ` gate-to-source pull-downs).
 
 ---

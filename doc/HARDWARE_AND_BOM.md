@@ -32,7 +32,7 @@ PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and
 | **8** | **180 Ω Series Gate Resistors** *(spec range: `100–220 Ω`)* | `1/4W` through-hole axial metal film | Placed inline between `74AHCT541` outputs (Pins 18–11) and MOSFET Gate pins (Pin 1) to dampen high-frequency gate ringing and limit nanosecond switching inrush current. |
 | **8** | **10 kΩ Gate Pull-Down Resistors** | `1/4W` through-hole axial metal film (`±5%`) | Soldered directly between each MOSFET socket's Gate (Pin 1) and Source/GND (Pin 3). Clamps gates to `0V` ($\tau = R \times C \approx 17\ \mu\text{s}$) when the buffer output is high impedance; MCU reset alone does not ensure this (`~8 kΩ` measured in-circuit). Delivers `4.91V` to the gate when driven HIGH through the `180 Ω` series stopper. |
 | **1** | **1000 µF Bulk Electrolytic Capacitor** *(spec range: `470–1000 µF`)* | Radial aluminum electrolytic, rated **`≥ 25V` or `35V`**, low-ESR | Placed directly across the incoming `+12V IN` and `GND IN` screw terminal pads. Acts as a local charge reservoir to absorb inductive flyback spikes and prevent `12V` rail sag during `20 kHz` 8-channel PWM switching. |
-| **1** | **0.1 µF (`100 nF`, code `104J`) Bypass Capacitor** | Red dipped metallized polyester film capacitor (`104J` = `0.1 µF ±5%`, low ESL, scavenged from `C9` of a Lepy `LP-2020A+`) | High-frequency local decoupling capacitor soldered diagonally across **Pin 20 ($V_{CC}$)** and **Pin 10 (`GND`)** on the underside of the `74AHCT541` DIP-20 socket. Supplies nanosecond gate-drive current spikes locally. |
+| **1** | **0.1 µF (`100 nF`, code `104J`) Bypass Capacitor** | Red dipped metallized polyester film capacitor (`104J` = `0.1 µF ±5%`, low ESL, scavenged from `C9` of a Lepy `LP-2020A+`) | High-frequency local decoupling capacitor connected between **Pin 20 ($V_{CC}$)** and **Pin 1 (grounded OE1)** of the `74AHCT541` socket, as reported by the user. Ground wiring chains **1 → 19 → 10**. This places the capacitor electrically across supply and ground; high-frequency effectiveness also depends on the ground-return loop. |
 | **2** | **0.1 µF (`100 nF`) Door Switch Debounce Capacitors** | Small polarized electrolytic barrel capacitors (`0.1 µF`, `50V`, date code `1908`) | Hardware RC low-pass EMI/debounce filters placed across each reed switch input (`GP0` and `GP1`) to quiet Logic `GND` (Pin 3) to snub RF/PWM noise picked up by long cabinet wire runs. *(Positive `+` long lead to GPIO pin; negative `–` striped lead to Pin 3 `GND`).* |
 
 ### D. Sockets, Connectors & Terminal Blocks
@@ -75,7 +75,7 @@ To prevent `6A–10A` `20 kHz` PWM switching currents from inducing ground bounc
 1. **Right Side — Quiet Logic, Sensor & User Input Zone (Pico Pins 1–20 Side):**
    - **Raspberry Pi Pico 2 W** seated in dual `1×20` female sockets with its Micro-USB port facing the bottom edge (equipped with a magnetic USB breakaway tip). In this orientation, **Pins 1–20** run along the **right** header column (bottom-to-top) and **Pins 21–40** run along the **left** header column (top-to-bottom).
    - **Right Edge Inputs:**
-     - **Bottom-Right:** 3-position blue screw terminal block for the Left & Right Door Reed Switches (`GP0`, `GP1`, and `Pin 3 GND`), with the **2× `0.1 µF` polarized barrel debounce capacitors** mounted immediately behind the terminal (tested on the bench via jumper wires to the yellow mini-breadboard).
+     - **Bottom-Right:** 4-position blue screw terminal block visible in the photo for the Left & Right Door Reed Switches (three logical nets: `GP0`, `GP1`, and `Pin 3 GND`; fourth position/return assignment not separately documented), with the **2× `0.1 µF` polarized barrel debounce capacitors** mounted immediately behind the terminal (tested on the bench via jumper wires to the yellow mini-breadboard).
      - **Mid/Upper-Right Edge:** The **4 momentary tactile pushbuttons** (`MODE NEXT`, `MODE PREV`, `UP`, `DOWN`) mounted in a vertical column along the right edge of the perfboard for direct thumb/finger access.
    - **Top-Right (Above Pico):** The **I2S Digital MEMS Microphone breakout** (blue PCB) mounted in the quiet logic corner away from the power stage.
 2. **Center — Level-Shifting, Gate Drive & 5V Regulation Zone (Pico Pins 21–40 Side):**
@@ -103,7 +103,7 @@ To prevent `6A–10A` `20 kHz` PWM switching currents from inducing ground bounc
 |  | 12V DC Input     |                v                                       | Pins   |  +-----+  |
 |  | (2-Pos 15A)      |<---[Star Ground Hub & +12V Trunk]--->[4R7 5V Buck]---->| 1..20  |  +-----+  |
 |  | + Bulk Cap       |                                      (Bottom Edge)     | (Right)|<-|Reeds|  |
-|  +------------------+                                                        +---+----+  |3-Pos|  |
+|  +------------------+                                                        +---+----+  |4-Pos|  |
 | [Nylon L-Foot]                                                        [USB]      |       +-----+  |
 |                                                                                  v   (2x 0.1uF)   |
 +---------------------------------------------------------------------------------------------------+
@@ -124,9 +124,9 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 
 1. **The Star Ground Center (`12V GND IN` Terminal Pad):**
    - Located directly beneath the negative (`–`) solder tail of the 2-position `15A` `12V DC Input` screw terminal.
-   - **Zero-Length Capacitor & Buck Tie:** The `1000 µF` bulk electrolytic capacitor's negative (`–`) lead and the `5V` Buck Converter's `IN-` (`GND`) pad are placed immediately adjacent to the `12V GND IN` pad, sharing a direct, near-zero-length solder bridge at the Star Center.
-   - **Path 1 — Noisy High-Current Return (`6A–10A`):** A heavy **`18–20 AWG` bare solid tinned copper bus wire** runs directly from the Star Ground Hub along all 8 MOSFET `Source` pins (`Header Pins 3, 7, 11, 15, 19, 23, 27, 31`). High-current PWM return spikes never enter the logic ground plane.
-   - **Path 2 — Quiet Logic Ground Feed:** Because the Buck Converter's `IN-` and `OUT-` share an internal solid copper plane, the clean logic ground branches off **`Buck OUT- (GND)`** using **`22–24 AWG` wire** to avoid ground loops. It routes directly to **`74AHCT541` Pin 10 (`GND`)** (chained to `Pin 1` and `Pin 19`) and **Pico Pin 38 (`GND`)**. Quiet peripheral returns use dedicated Pico ground pins (`Pin 3` for reed switches, `Pin 13` for buttons, `Pin 18` for the `INMP441` mic).
+   - **Capacitor & Buck Return Junction:** The intended hub joins the `12V GND IN` terminal, `1000 µF` bulk capacitor negative, MOSFET source-bus return and buck `IN-` return. The photos show branching wiring near this junction; the buck module is physically separate, so its return is wired to the hub rather than its pad being directly adjacent. User reports comprehensive post-solder continuity checks; exact branch resistance and full-load noise remain unmeasured.
+   - **Path 1 — Noisy High-Current Return (`6A–10A`):** A heavy **`18–20 AWG` bare solid tinned copper bus wire** runs directly from the Star Ground Hub along all 8 MOSFET `Source` pins (`Header Pins 3, 7, 11, 15, 19, 23, 27, 31`). The intended separate return limits shared impedance with logic ground; it does not guarantee absence of switching noise.
+   - **Path 2 — Quiet Logic Ground Feed:** Because the Buck Converter's `IN-` and `OUT-` share an internal solid copper plane, the clean logic ground branches off **`Buck OUT- (GND)`** using **`22–24 AWG` wire** to avoid ground loops. The buffer branch reaches **`74AHCT541` Pin 1**, then chains **1 → 19 → 10 (`GND`)**, as confirmed by the user and **Pico Pin 38 (`GND`)**. Quiet peripheral returns use dedicated Pico ground pins (`Pin 3` for reed switches, `Pin 13` for buttons, `Pin 18` for the `INMP441` mic).
 2. **`+12V` High-Current Anode Trunk:**
    - A heavy **`18–20 AWG` bare solid copper wire** links `+12V IN` $\rightarrow$ `Bulk Capacitor (+)` $\rightarrow$ `Buck Converter IN+` $\rightarrow$ `Strip 1 [+12V]` terminal $\rightarrow$ `Strip 2 [+12V]` terminal.
 3. **`+5V` Logic Power Chain:**
@@ -160,7 +160,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 
 | DIP-20 Pin # | Signal Name | Side / Direction | Connected To | LED Channel / Function |
 | :---: | :--- | :--- | :--- | :--- |
-| **Pin 1** | $\overline{OE1}$ | Left (Control In) | Chained to **Pin 10 (`GND`)** & **Pin 19 ($\overline{OE2}$)** | Active-LOW Output Enable 1 (permanently enabled) |
+| **Pin 1** | $\overline{OE1}$ | Left (Control In) | **Supply GND**, **bypass capacitor lead B**, and **Pin 19 ($\overline{OE2}$)** (then Pin 10) | Active-LOW Output Enable 1 (permanently enabled) |
 | **Pin 2** | `A0` (`1A1`) | Left (3.3V Input) | **Pico Physical Pin 21 (`GP16`)** (PWM Slice 0A) | **Ch 0 — Strip 1 White (`W1`)** |
 | **Pin 3** | `A1` (`1A2`) | Left (3.3V Input) | **Pico Physical Pin 22 (`GP17`)** (PWM Slice 0B) | **Ch 1 — Strip 1 Blue (`B1`)** |
 | **Pin 4** | `A2` (`1A3`) | Left (3.3V Input) | **Pico Physical Pin 24 (`GP18`)** (PWM Slice 1A) | **Ch 2 — Strip 1 Red (`R1`)** |
@@ -169,7 +169,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 | **Pin 7** | `A5` (`1A6`) | Left (3.3V Input) | **Pico Physical Pin 27 (`GP21`)** (PWM Slice 2B) | **Ch 5 — Strip 2 Blue (`B2`)** |
 | **Pin 8** | `A6` (`1A7`) | Left (3.3V Input) | **Pico Physical Pin 31 (`GP26`)** (PWM Slice 5A) | **Ch 6 — Strip 2 Red (`R2`)** |
 | **Pin 9** | `A7` (`1A8`) | Left (3.3V Input) | **Pico Physical Pin 32 (`GP27`)** (PWM Slice 5B) | **Ch 7 — Strip 2 Green (`G2`)** |
-| **Pin 10** | `GND` | Left (Bottom Corner) | **Buck `OUT- (GND)`**, **Pico `GND` (Pin 38)**, **Pin 1**, **Pin 19**, and **Lead 2 of `0.1 µF` (`104J`) Bypass Cap** | IC Ground Reference (`0.1 µF` cap sits in parallel across Pins 10 & 20) |
+| **Pin 10** | `GND` | Left (Bottom Corner) | **Pin 19**, returning through **Pin 1** to supply ground; capacitor lead B attaches at Pin 1 | IC Ground Reference; shared ground net with pins 1 and 19 |
 | **Pin 11** | `Y7` (`1Y8`) | Right (5.0V Output) | `180 Ω` resistor $\rightarrow$ **MOSFET 8 Gate** (`1×40` Pin 29) | Drives **Strip 2 Green (`G2-`)** |
 | **Pin 12** | `Y6` (`1Y7`) | Right (5.0V Output) | `180 Ω` resistor $\rightarrow$ **MOSFET 7 Gate** (`1×40` Pin 25) | Drives **Strip 2 Red (`R2-`)** |
 | **Pin 13** | `Y5` (`1Y6`) | Right (5.0V Output) | `180 Ω` resistor $\rightarrow$ **MOSFET 6 Gate** (`1×40` Pin 21) | Drives **Strip 2 Blue (`B2-`)** |
@@ -179,7 +179,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 | **Pin 17** | `Y1` (`1Y2`) | Right (5.0V Output) | `180 Ω` resistor $\rightarrow$ **MOSFET 2 Gate** (`1×40` Pin 5) | Drives **Strip 1 Blue (`B1-`)** |
 | **Pin 18** | `Y0` (`1Y1`) | Right (5.0V Output) | `180 Ω` resistor $\rightarrow$ **MOSFET 1 Gate** (`1×40` Pin 1) | Drives **Strip 1 White (`W1-`)** |
 | **Pin 19** | $\overline{OE2}$ | Right (Control In) | Chained to **Pin 1 ($\overline{OE1}$)** and **Pin 10 (`GND`)** | Active-LOW Output Enable 2 (`Buck GND -> Pin 1 -> Pin 19 -> Pin 10`) |
-| **Pin 20** | $V_{CC}$ | Right (Top Corner) | **Buck `VO+ (+5V)`**, **Pico `VSYS` (Pin 39)**, and **Lead 1 of `0.1 µF` (`104J`) Bypass Cap** | `+5.0V` Power Supply Input (`0.1 µF` cap spans diagonally underneath from Pin 20 to Pin 10) |
+| **Pin 20** | $V_{CC}$ | Right (Top Corner) | **Buck `VO+ (+5V)`**, **Pico `VSYS` (Pin 39)**, and **Lead 1 of `0.1 µF` (`104J`) Bypass Cap** | `+5.0V` Power Supply Input (`0.1 µF` cap physically connects Pin 20 to grounded Pin 1) |
 
 ---
 
@@ -291,4 +291,6 @@ Positioned near the top-right end of the Pico 2 W header (`Pins 17–20`, USB fa
 
 ## Outstanding Bench Acceptance
 
-Installed buck and reed part numbers remain unknown. `4R7` identifies the inductor, not the regulator. Verify both reed assemblies with a continuity meter: magnet near closed, magnet away open ([manufacturer terminology](https://www.reedswitchdevelopments.com/reed-switch-operation/)). Power isolation, buffer reset behavior and full-load electrical/thermal performance require measurements; telemetry cannot establish them. Follow [bench validation](bench_validation.md) and record results in HANDOFF.md. Cabinet installation is unconfirmed.
+Installed buck and reed part numbers remain unknown. `4R7` identifies the inductor, not the regulator. Replacement reed assemblies must provide magnet-near closed and magnet-away open continuity ([manufacturer terminology](https://www.reedswitchdevelopments.com/reed-switch-operation/)). Power isolation, buffer reset behavior and full-load electrical/thermal performance require measurements; telemetry cannot establish them. Follow [bench validation](bench_validation.md) and record results in HANDOFF.md. Cabinet installation is unconfirmed.
+
+Bench status (2026-11-11): user confirms electrolytic polarity and comprehensive post-solder continuity checks; functional tests showed no wiring errors. Buffer connections were confirmed as +5 V→20, capacitor between 20 and 1, and GND→1→19→10. No star-ground rewiring is indicated by the visual/functional review. Five-minute short-segment warming check left all checked components cool to touch after 12 V removal. Cabinet installation and full-strip load validation are next; full-load thermal/electrical acceptance remains pending.
