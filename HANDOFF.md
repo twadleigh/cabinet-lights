@@ -1,6 +1,6 @@
 # Project Handoff & Live State
 
-**Updated:** 2026-11-11. Phase 2 software implemented; repository-review fixes complete locally and authorized for commit/push. New firmware is **not flashed**. Previous Phase 2 firmware (`b765368`) remains the last known deployed revision. Next task: walk through bench validation with the user. Cabinet installation remains unconfirmed; Phase 3/4 are future work.
+**Updated:** 2026-11-11. Phase 2 software implemented; repository-review fixes committed and pushed as `ad4ab8f` on `main`; this follow-up records remote CI evidence. New firmware is **not flashed**. Previous Phase 2 firmware (`b765368`) remains the last known deployed revision. Next task: walk through bench validation with the user. Cabinet installation remains unconfirmed; Phase 3/4 are future work.
 
 ## Settled Constraints
 
@@ -36,7 +36,7 @@
 - Both firmware environments rebuilt from clean with no compiler warnings/errors: RAM **75,200 B**, ELF flash accounting **432,764 B**, actual OTA `.bin` **445,072 B**. Older review baseline was 75,024 B RAM / 394,808 B flash under effective -Os; O2 intentionally increases code size.
 - Both environments' generated compilation databases confirm -O2 with no -Os for main/audio/LED/local OTA code. PWM handler disassembled at **0x20000120**, SRAM literals/data and peripheral writes, no branch-and-link calls.
 - Local Markdown links and `git diff --check` pass; generated files/production credentials remain ignored. Pinout unchanged. No board flash or new physical measurements this turn.
-- **T03 pending:** inspect actual GitHub Actions run for the pushed SHA, both Ubuntu and macOS bootstrap/build/host jobs. Unauthenticated API currently returns HTTP 403 (rate limit); no Linux pass is claimed. Workflow uses a dependency cache; validate a deliberate cache miss/fresh runner for portability when accessible.
+- **T03 passed:** [GitHub Actions run 43061095865](https://github.com/twadleigh/cabinet-lights/actions/runs/43061095865), commit `ad4ab8f`, completed successfully on Ubuntu and macOS (2/2 matrix jobs, 4m 25s). Workflow runs bootstrap, both firmware builds, compilation database and host checks. The changed platformio.ini changes the exact dependency-cache key (no fallback restore key). Public summary verified; detailed logs require sign-in. GitHub emits Node.js 20 deprecation notices for existing checkout@v4/cache@v4/setup-python@v5 while executing them on Node.js 24; these are action-runtime notices, not compiler warnings. Action-major upgrades are separate maintenance, not needed to pass this run.
 - Previous sessions verified USB/OTA/mDNS/UDP, mic response, abandoned PREP and failed TCP recovery; user reported doors/reversals, buttons/bounds, Debug, external startup and visual dimming. These observations do not validate the new binary or unresolved power/thermal issues.
 
 ## Next: Bench and Remaining Decisions
