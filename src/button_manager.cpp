@@ -5,7 +5,7 @@ struct DebouncedPin {
   uint8_t pin;
   bool lastReading;
   bool steadyState;
-  unsigned long lastDebounceTime;
+  uint32_t lastDebounceTime;
 };
 
 // Initialize steadyState and lastReading to LOW (Closed/Grounded)
@@ -28,7 +28,7 @@ static void updatePin(DebouncedPin& dp, bool& fellEdge) {
     dp.lastReading = reading;
   }
 
-  if ((millis() - dp.lastDebounceTime) > DEBOUNCE_DELAY_MS) {
+  if (uint32_t(millis() - dp.lastDebounceTime) > DEBOUNCE_DELAY_MS) {
     if (reading != dp.steadyState) {
       dp.steadyState = reading;
       // Falling edge: transitioned from unpressed (HIGH) to pressed (LOW)
@@ -49,7 +49,7 @@ void buttonManagerInit() {
   pinMode(PIN_BTN_BRIGHT_DOWN, INPUT_PULLUP);
 }
 
-ButtonEvent buttonManagerUpdate() {
+ButtonEvents buttonManagerUpdate() {
   bool dummyDoorFell   = false;
   bool modeNextFell    = false;
   bool modePrevFell    = false;
@@ -64,12 +64,12 @@ ButtonEvent buttonManagerUpdate() {
   updatePin(btnBrightUp,   brightUpFell);
   updatePin(btnBrightDown, brightDownFell);
 
-  if (modeNextFell)   return BTN_EVENT_MODE_NEXT;
-  if (modePrevFell)   return BTN_EVENT_MODE_PREV;
-  if (brightUpFell)   return BTN_EVENT_BRIGHT_UP;
-  if (brightDownFell) return BTN_EVENT_BRIGHT_DOWN;
-
-  return BTN_EVENT_NONE;
+  ButtonEvents events = 0;
+  if (modeNextFell != modePrevFell)
+    events |= buttonEventBit(modeNextFell ? BTN_EVENT_MODE_NEXT : BTN_EVENT_MODE_PREV);
+  if (brightUpFell != brightDownFell)
+    events |= buttonEventBit(brightUpFell ? BTN_EVENT_BRIGHT_UP : BTN_EVENT_BRIGHT_DOWN);
+  return events;
 }
 
 bool getDoorSwitchAggregateOpen() {

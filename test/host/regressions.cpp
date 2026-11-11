@@ -3,6 +3,7 @@
 #include "../../src/led_driver.cpp"
 #include "../../src/door_engine.cpp"
 #include "../../src/audio_dsp.cpp"
+#include "../../src/button_manager.cpp"
 void telemetryLogLine(const char*) {}
 
 static void testPwm() {
@@ -116,7 +117,65 @@ static void testAudio() {
   writer.join();
 }
 
+static void testInputs() {
+  testMillis = UINT32_MAX - 20;
+  for (unsigned p : {0,1,8,9,10,11}) testPins[p] = HIGH;
+  buttonManagerInit();
+  assert(!getDoorSwitchAggregateOpen()); // Boot closed even with open contacts.
+  assert(buttonManagerUpdate() == 0);
+  testMillis += 36;
+  assert(buttonManagerUpdate() == 0 && getDoorSwitchAggregateOpen());
+  testPins[0] = LOW; buttonManagerUpdate(); testMillis += 36; buttonManagerUpdate();
+  assert(getDoorSwitchAggregateOpen()); // Either door is enough.
+  testPins[1] = LOW; buttonManagerUpdate(); testMillis += 36; buttonManagerUpdate();
+  assert(!getDoorSwitchAggregateOpen());
+  testPins[8] = testPins[10] = LOW;
+  buttonManagerUpdate(); testMillis += 10;
+  testPins[8] = testPins[10] = HIGH; buttonManagerUpdate(); testMillis += 10;
+  testPins[8] = testPins[10] = LOW; buttonManagerUpdate(); testMillis += 36;
+  assert(buttonManagerUpdate() == (buttonEventBit(BTN_EVENT_MODE_NEXT) | buttonEventBit(BTN_EVENT_BRIGHT_UP)));
+  testMillis += 1000; assert(buttonManagerUpdate() == 0); // No hold-repeat.
+  for (unsigned p : {8,9,10,11}) testPins[p] = HIGH;
+  buttonManagerUpdate(); testMillis += 36; buttonManagerUpdate();
+  for (unsigned p : {8,9,10,11}) testPins[p] = LOW;
+  buttonManagerUpdate(); testMillis += 36;
+  assert(buttonManagerUpdate() == 0); // Opposing edges cancel, including at limits.
+  testMillis += 36; assert(buttonManagerUpdate() == 0);
+}
+
+static void testPcm() {
+  dcStateX = dcStateY = peakHold = 0;
+  testSamples.push_back(-4096 * 65536);
+  audioDspCore1Update();
+  assert(dcStateX == -4096 && peakHold == 0.5f); // Signed PCM and immediate attack.
+  testSamples.push_back(32767 * 65536);
+  audioDspCore1Update(); assert(peakHold == 1);
+  dcStateX = dcStateY = 0; peakHold = 1;
+  const auto before = audioDspProcessedSamples();
+  for (int i=0;i<8000;++i) testSamples.push_back(0);
+  while (!testSamples.empty()) audioDspCore1Update();
+  assert(std::fabs(peakHold - std::exp(-1.0f)) < 0.0002f);
+  assert(audioDspProcessedSamples() - before == 8000);
+  for (int i=0;i<8000;++i) testSamples.push_back(1000 * 65536);
+  while (!testSamples.empty()) audioDspCore1Update();
+  assert(std::fabs(dcStateY) < 0.001f && std::isfinite(peakHold));
+  testMillis = UINT32_MAX - 50;
+  testDelayHook = nullptr;
+  assert(!audioDspStopForOta()); // 200ms timeout crosses uint32 wrap.
+  audioDspResumeAfterOta();
+  testDelayHook = audioDspCore1Update;
+  assert(audioDspStopForOta());
+  assert(peakHold == 0);
+  audioDspResumeAfterOta(); audioDspCore1Update();
+  assert(peakHold == 0);
+  testMillis = UINT32_MAX - 1000;
+  doorEngineInit(false); doorEngineSetDoorState(true);
+  testMillis += 2000;
+  StripColor a,b; doorEngineUpdate(a,b);
+  assert(std::fabs(doorProgress - 0.4f) < 1e-6f);
+}
+
 int main() {
-  testPwm(); testDoors(); testAudio();
+  testPwm(); testDoors(); testAudio(); testInputs(); testPcm();
   std::cout << "PWM, door, and cross-core audio regression checks passed.\n";
 }

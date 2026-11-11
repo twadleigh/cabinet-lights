@@ -2,6 +2,10 @@ Import("env")
 import os
 import socket
 import time
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(env.subst("$PROJECT_DIR")) / "scripts"))
+from ota_limits import validate_image
 
 
 def prepare_pico_for_ota(ip, udp_port):
@@ -21,11 +25,15 @@ def prepare_pico_for_ota(ip, udp_port):
                 pass
     finally:
         sock.close()
-    print("[OTA Auto-Discovery] Warning: No OTA_READY reply; proceeding with standard espota...")
+    print("[OTA Auto-Discovery] No valid OTA_READY reply; upload aborted.")
     return False
 
 
 def discover_pico_ip(source, target, env):
+    if not source:
+        raise RuntimeError("OTA artifact is missing; refusing upload")
+    size, limit = validate_image(str(source[0]), env.GetProjectOption("board_build.filesystem_size", "1m"))
+    print(f"[OTA] Artifact {size} bytes; conservative staging limit {limit} bytes")
     hostname = f"{env.GetProjectOption('custom_ota_hostname', 'cabinet-lights')}.local"
     target_host = env.subst("$UPLOAD_PORT") or hostname
     # Inject authentication inside Python so arbitrary passwords never pass
@@ -68,9 +76,11 @@ def discover_pico_ip(source, target, env):
         finally:
             sock.close()
 
-    if resolved_ip:
-        env.Replace(UPLOAD_PORT=resolved_ip)
-        prepare_pico_for_ota(resolved_ip, udp_port)
+    if not resolved_ip:
+        raise RuntimeError(f"Cannot resolve OTA target {target_host}; refusing upload")
+    env.Replace(UPLOAD_PORT=resolved_ip)
+    if not prepare_pico_for_ota(resolved_ip, udp_port):
+        raise RuntimeError("Audio pause was not acknowledged; refusing upload")
 
 
 env.AddPreAction("upload", discover_pico_ip)

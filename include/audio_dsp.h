@@ -22,3 +22,6 @@ bool audioDspStopForOta();
 void audioDspResumeAfterOta();
 AudioDspStatus getAudioDspStatus();
 void getAudioEnergySnapshot(AudioEnergy& snapshot);
+
+// Monotonic modulo-2^32 processed frames; not a DMA-overflow counter.
+uint32_t audioDspProcessedSamples();

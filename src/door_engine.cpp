@@ -5,7 +5,7 @@
 static DoorState systemDoorState = DOOR_STATE_CLOSED;
 
 static float doorProgress = 0.0f; // 0.0 = fully ambient, 1.0 = fully photopic task white
-static unsigned long lastDoorUpdateTime = 0;
+static uint32_t lastDoorUpdateTime = 0;
 
 static ControllerMode currentMode = MODE_NORMAL;
 
@@ -47,10 +47,10 @@ static float ambientBrightness = BRIGHTNESS_TABLE[DEFAULT_BRIGHTNESS_INDEX];
 static float currentHue = 0.0f;
 static float sourceHue = 0.0f;
 static float targetHue = 0.0f;
-static unsigned long lastHueSampleTime = 0;
+static uint32_t lastHueSampleTime = 0;
 
 static uint8_t debugChannelIndex = 0;
-static unsigned long lastDebugStepTime = 0;
+static uint32_t lastDebugStepTime = 0;
 
 struct DebugChannel {
   const char* name;
@@ -124,7 +124,7 @@ void doorEngineInit(bool initialDoorOpen) {
   lastDebugStepTime = millis();
 }
 
-static void advanceDoorProgress(unsigned long now) {
+static void advanceDoorProgress(uint32_t now) {
   float step = static_cast<float>(now - lastDoorUpdateTime) / DOOR_FADE_RAMP_MS;
   lastDoorUpdateTime = now;
   doorProgress = constrain(doorProgress + (systemDoorState == DOOR_STATE_OPEN ? step : -step), 0.0f, 1.0f);
@@ -181,10 +181,10 @@ void doorEngineHandleButton(ButtonEvent event) {
 }
 
 void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
-  unsigned long now = millis();
+  uint32_t now = millis();
 
   // 1. Always keep Normal-mode hue walk & door fade state advancing smoothly in background
-  unsigned long elapsedSinceSample = now - lastHueSampleTime;
+  uint32_t elapsedSinceSample = now - lastHueSampleTime;
   if (elapsedSinceSample >= HUE_CYCLE_PERIOD_MS) {
     sourceHue = targetHue;
     targetHue = (float)random(0, 360);

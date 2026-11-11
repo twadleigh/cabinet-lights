@@ -10,5 +10,8 @@ enum ButtonEvent {
 };
 
 void buttonManagerInit();
-ButtonEvent buttonManagerUpdate();
+using ButtonEvents = uint8_t;
+constexpr ButtonEvents buttonEventBit(ButtonEvent event) { return event == BTN_EVENT_NONE ? 0 : (1u << (event - 1)); }
+// Independent presses survive; simultaneous opposing pairs cancel.
+ButtonEvents buttonManagerUpdate();
 bool getDoorSwitchAggregateOpen();

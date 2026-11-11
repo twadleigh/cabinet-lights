@@ -6,6 +6,7 @@ Listens on UDP port 44444 (default) for real-time broadcast logs from Core 0.
 import argparse
 import socket
 import sys
+import time
 from datetime import datetime
 
 
@@ -21,11 +22,11 @@ def main() -> None:
     sock.settimeout(0.5)
 
     print(f"Listening for Cabinet Controller UDP telemetry on 0.0.0.0:{args.port} ...", flush=True)
-    start_time = datetime.now().timestamp()
+    start_time = time.monotonic()
 
     try:
         while True:
-            if args.duration > 0 and (datetime.now().timestamp() - start_time) >= args.duration:
+            if args.duration > 0 and (time.monotonic() - start_time) >= args.duration:
                 break
             try:
                 data, addr = sock.recvfrom(1024)

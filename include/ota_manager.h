@@ -7,14 +7,17 @@ void otaManagerInit();
 
 // Polls Wi-Fi connection status and services ArduinoOTA when connected.
 // Call on Core 0; an OTA pause handshake can wait up to 200 ms.
-// PREP quiesces DMA before flash erases; onStart repeats it for direct clients.
+// An abortable pre-update guard also protects direct clients before flash work.
 void otaManagerUpdate();
 
 // Returns true when connected to Wi-Fi with a valid IP address.
 bool otaManagerIsConnected();
 
-// Returns true once LittleFS is mounted at boot so Core 1 can safely start I2S DMA.
-bool otaManagerIsFsReady();
+// Boot work complete is independent of storage health; failure must not hang Core 1.
+bool otaManagerIsBootReady();
+bool otaManagerIsFsHealthy();
+uint32_t otaManagerReconnectCount();
+const char* otaManagerState();
 
 // Broadcasts a single line of telemetry over UDP (local subnet broadcast:UDP_TELEMETRY_PORT)
 // when Wi-Fi is connected, in addition to printing to USB Serial.

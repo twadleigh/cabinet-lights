@@ -22,6 +22,8 @@ static std::atomic<float> sharedEnergy[4]{};
 static float dcStateX = 0.0f;
 static float dcStateY = 0.0f;
 static float peakHold = 0.0f;
+static constexpr float PEAK_RELEASE = 0.9998750078121745f; // exp(-1/(16000 * 0.5s))
+static std::atomic<uint32_t> processedSamples{0};
 
 static void publishEnergy() {
   energySequence.fetch_add(1);
@@ -94,20 +96,23 @@ void audioDspCore1Update() {
     if (absY > peakHold) {
       peakHold = (absY > 1.0f) ? 1.0f : absY;
     } else {
-      peakHold *= 0.9995f; // ~0.5s exponential decay at 16 kHz so 1 Hz telemetry catches claps
+      peakHold *= PEAK_RELEASE; // 0.5s release; telemetry samples this envelope.
     }
   }
 
+  processedSamples.fetch_add(static_cast<uint32_t>(count));
   publishEnergy();
 }
+
+uint32_t audioDspProcessedSamples() { return processedSamples.load(); }
 
 bool audioDspStopForOta() {
   // A fresh generation prevents a stale ACK from a just-cancelled PREP being
   // mistaken for a new pause while Core 1 is restarting I2S.
   const uint32_t generation = pauseGeneration.fetch_add(1) + 1;
   otaPauseRequested = true;
-  unsigned long startMs = millis();
-  while (millis() - startMs < 200) {
+  uint32_t startMs = millis();
+  while (uint32_t(millis() - startMs) < 200) {
     if (otaPausedAck && pausedGeneration.load() == generation) return true;
     delay(1);
   }

@@ -7,7 +7,7 @@
 #include "ota_manager.h"
 
 // ============================================================================
-// Core 0: Orchestration, Inputs, Kinematics, PWM Driving, Non-Blocking OTA
+// Core 0: Orchestration, Inputs, Kinematics, PWM Driving, OTA Services (Transfers Block)
 // ============================================================================
 void setup() {
   Serial.begin(115200);
@@ -22,8 +22,8 @@ void setup() {
   otaManagerInit();
 
   // Wait up to 3.5 seconds for PlatformIO serial monitor to attach
-  unsigned long start = millis();
-  while (!Serial && (millis() - start < 3500)) {
+  uint32_t start = millis();
+  while (!Serial && (uint32_t(millis() - start) < 3500)) {
     delay(10);
   }
 
@@ -35,9 +35,17 @@ void setup() {
 }
 
 void loop() {
-  // 0. Service Non-Blocking Wi-Fi & ArduinoOTA at ~200 Hz (every 5 ms)
-  static unsigned long lastOtaServiceMs = 0;
-  if (millis() - lastOtaServiceMs >= 5) {
+  static uint32_t previousLoop = millis();
+  static uint32_t maxLoopMs = 0;
+  static uint64_t uptimeMs = previousLoop;
+  const uint32_t now = millis();
+  const uint32_t elapsed = now - previousLoop;
+  previousLoop = now;
+  uptimeMs += elapsed;
+  if (elapsed > maxLoopMs) maxLoopMs = elapsed;
+  // 0. Service Wi-Fi & OTA (an active transfer blocks controls) at ~200 Hz (every 5 ms)
+  static uint32_t lastOtaServiceMs = 0;
+  if (uint32_t(millis() - lastOtaServiceMs) >= 5) {
     lastOtaServiceMs = millis();
     otaManagerUpdate();
   }
@@ -55,9 +63,10 @@ void loop() {
   }
 
   // 2. Process Debounced Inputs
-  ButtonEvent event = buttonManagerUpdate();
-  if (event != BTN_EVENT_NONE) {
-    doorEngineHandleButton(event);
+  ButtonEvents events = buttonManagerUpdate();
+  for (uint8_t value = BTN_EVENT_MODE_NEXT; value <= BTN_EVENT_BRIGHT_DOWN; ++value) {
+    auto event = static_cast<ButtonEvent>(value);
+    if (events & buttonEventBit(event)) doorEngineHandleButton(event);
   }
 
   // 3. Evaluate Door Contacts
@@ -72,8 +81,8 @@ void loop() {
   setStripOutputs(s1, s2);
 
   // 6. Periodic Diagnostic Telemetry (Every 1 second over Serial + UDP)
-  static unsigned long lastTelemetry = 0;
-  if (millis() - lastTelemetry >= 1000) {
+  static uint32_t lastTelemetry = 0;
+  if (uint32_t(millis() - lastTelemetry) >= 1000) {
     lastTelemetry = millis();
     AudioEnergy audioSnap;
     getAudioEnergySnapshot(audioSnap);
@@ -105,6 +114,16 @@ void loop() {
              g2Pct / 100, g2Pct % 100,
              b2Pct / 100, b2Pct % 100);
     telemetryLogLine(logBuf);
+    static uint32_t reportSequence = 0;
+    char health[320];
+    snprintf(health, sizeof(health),
+             "[HEALTH] Build: %s | Seq: %lu | UptimeMs: %llu | MaxLoopMs: %lu | DSP: %u | Samples: %lu | FS: %s | OTA: %s | Reconnects: %lu",
+             __DATE__ " " __TIME__, static_cast<unsigned long>(++reportSequence),
+             static_cast<unsigned long long>(uptimeMs), static_cast<unsigned long>(maxLoopMs),
+             static_cast<unsigned>(currentDspStatus), static_cast<unsigned long>(audioDspProcessedSamples()),
+             otaManagerIsFsHealthy() ? "OK" : "FAULT", otaManagerState(),
+             static_cast<unsigned long>(otaManagerReconnectCount()));
+    telemetryLogLine(health);
   }
 
   delay(5); // ~200 Hz control loop; PWM ISR independently dithers at 20 kHz
@@ -114,8 +133,8 @@ void loop() {
 // Core 1: Background Audio Pipeline (Independent Thread)
 // ============================================================================
 void setup1() {
-  while (!otaManagerIsFsReady()) {
-    delay(10); // Wait for Core 0 to mount/format LittleFS before starting I2S DMA
+  while (!otaManagerIsBootReady()) {
+    delay(10); // Wait for boot flash work to finish, including a storage failure
   }
   audioDspCore1Init();
 }

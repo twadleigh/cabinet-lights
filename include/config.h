@@ -48,7 +48,7 @@ constexpr uint16_t      PWM_MIN_PULSE_TICKS   = 30;      // Minimum matched puls
 constexpr unsigned long DOOR_FADE_RAMP_MS     = 5000UL;  // 5-second full-scale fade time constant
 constexpr unsigned long HUE_CYCLE_PERIOD_MS   = 30000UL; // 30-second random hue period
 constexpr unsigned long DEBUG_CHANNEL_HOLD_MS = 1500UL;  // 1.5-second hold per channel in Debug Mode
-constexpr float         GAMMA_EXPONENT        = 2.4f;    // CIE L* power-law exponent
+constexpr float         GAMMA_EXPONENT        = 2.4f;    // Empirical perceptual exponent; not exact CIE L*
 
 static_assert(F_CPU / PWM_FREQ_HZ == PWM_MAX_DUTY,
               "PWM_MAX_DUTY must match exact integer sysclk division (clkdiv = 1.0)");

@@ -6,7 +6,7 @@
 #pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #include <WiFi.h>
 #include <WiFiUdp.h>
-#include <ArduinoOTA.h>
+#include <cabinet_ota.h>
 #pragma GCC diagnostic pop
 #include <LittleFS.h>
 #include <string.h>
@@ -27,13 +27,16 @@ enum WifiState : uint8_t {
 
 static WifiState wifiState = WIFI_STATE_DISABLED;
 static bool otaStarted = false;
-static std::atomic<bool> fsReady{false};
+static std::atomic<bool> bootReady{false};
+static std::atomic<bool> fsHealthy{false};
+static bool telemetryStarted = false;
+static uint32_t connectCount = 0;
 static bool otaPrepPending = false;
 static bool otaUploadActive = false;
 static bool otaResumePending = false;
-static unsigned long otaPrepMs = 0;
+static uint32_t otaPrepMs = 0;
 static constexpr unsigned long OTA_PREP_TIMEOUT_MS = 15000UL;
-static unsigned long lastConnectAttemptMs = 0;
+static uint32_t lastConnectAttemptMs = 0;
 static WiFiUDP udpTelemetry;
 
 static bool credentialsConfigured() {
@@ -52,29 +55,36 @@ static void startWifiAttempt() {
 }
 
 static void setupArduinoOtaOnce() {
-  if (otaStarted) return;
+  if (!telemetryStarted) {
+    telemetryStarted = udpTelemetry.begin(UDP_TELEMETRY_PORT) != 0;
+  }
+  if (otaStarted || !fsHealthy) return;
 
-  ArduinoOTA.setPort(OTA_PORT);
-  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  CabinetOTA.setPort(OTA_PORT);
+  CabinetOTA.setHostname(OTA_HOSTNAME);
 #ifdef OTA_PASSWORD
-  if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
+  if (strlen(OTA_PASSWORD) > 0) CabinetOTA.setPassword(OTA_PASSWORD);
 #endif
 
-  ArduinoOTA.onStart([]() {
+  CabinetOTA.onBeforeUpdate([]() {
+    // This hook runs after authentication but BEFORE LittleFS/Updater access.
+    if (!fsHealthy || !audioDspStopForOta()) {
+      telemetryLogLine("[OTA] Update rejected: storage unavailable or audio pause timed out.");
+      return false;
+    }
     otaUploadActive = true;
     otaPrepPending = false;
-    // PREP pauses before Update.begin() can erase flash. This second,
-    // idempotent call also covers clients that skip the preflight handshake.
-    telemetryLogLine("[OTA] Requesting Core 1 to shut down I2S DMA...");
-    audioDspStopForOta();
+    return true;
+  });
+  CabinetOTA.onStart([]() {
     telemetryLogLine("[OTA] Core 1 I2S stopped. Receiving firmware...");
   });
 
-  ArduinoOTA.onEnd([]() {
+  CabinetOTA.onEnd([]() {
     telemetryLogLine("[OTA] Firmware staged to LittleFS. Rebooting...");
   });
 
-  ArduinoOTA.onError([](ota_error_t error) {
+  CabinetOTA.onError([](ota_error_t error) {
     char msg[64];
     snprintf(msg, sizeof(msg), "[OTA] Error (%u)", static_cast<unsigned>(error));
     telemetryLogLine(msg);
@@ -85,23 +95,19 @@ static void setupArduinoOtaOnce() {
     otaResumePending = true;
   });
 
-  ArduinoOTA.begin();
-  udpTelemetry.begin(UDP_TELEMETRY_PORT);
+  CabinetOTA.begin();
   otaStarted = true;
 }
 
 void otaManagerInit() {
-  // Mount (and auto-format if needed) the 1MB LittleFS OTA partition at boot
-  // BEFORE Core 1 starts I2S DMA, and remove any stale /firmware.bin so Update.begin()
-  // never has to erase flash sectors before ArduinoOTA.onStart() runs.
-  if (!LittleFS.begin()) {
-    LittleFS.format();
-    LittleFS.begin();
+  // LittleFS.begin auto-formats on mount failure in the pinned core. All boot
+  // flash work finishes before bootReady releases Core 1, even on failure.
+  fsHealthy = LittleFS.begin();
+  if (fsHealthy && LittleFS.exists("/firmware.bin")) {
+    fsHealthy = LittleFS.remove("/firmware.bin");
   }
-  if (LittleFS.exists("/firmware.bin")) {
-    LittleFS.remove("/firmware.bin");
-  }
-  fsReady = true;
+  if (!fsHealthy) Serial.println(F("[FS] Initialization/cleanup failed; OTA disabled."));
+  bootReady = true;
 
   if (!credentialsConfigured()) {
     wifiState = WIFI_STATE_DISABLED;
@@ -116,7 +122,7 @@ void otaManagerInit() {
 
 void otaManagerUpdate() {
   // Run even after Wi-Fi disconnects so an abandoned PREP cannot silence audio.
-  if (otaPrepPending && !otaUploadActive && millis() - otaPrepMs >= OTA_PREP_TIMEOUT_MS) {
+  if (otaPrepPending && !otaUploadActive && uint32_t(millis() - otaPrepMs) >= OTA_PREP_TIMEOUT_MS) {
     otaPrepPending = false;
     audioDspResumeAfterOta();
     telemetryLogLine("[OTA] Preparation expired; audio resumed.");
@@ -130,6 +136,7 @@ void otaManagerUpdate() {
   if (linkUp) {
     if (wifiState != WIFI_STATE_CONNECTED) {
       wifiState = WIFI_STATE_CONNECTED;
+      ++connectCount;
       setupArduinoOtaOnce();
 
       char msg[128];
@@ -147,7 +154,7 @@ void otaManagerUpdate() {
       int n = udpTelemetry.read(cmdBuf, sizeof(cmdBuf) - 1);
       if (n > 0) {
         cmdBuf[n] = '\0';
-        if (strcmp(cmdBuf, "OTA_PREP") == 0 && !otaUploadActive) {
+        if (n == 8 && pktSize == 8 && strcmp(cmdBuf, "OTA_PREP") == 0 && fsHealthy && otaStarted && !otaUploadActive) {
           IPAddress remIp = udpTelemetry.remoteIP();
           uint16_t remPort = udpTelemetry.remotePort();
           otaPrepPending = true;
@@ -164,7 +171,7 @@ void otaManagerUpdate() {
       }
     }
 
-    ArduinoOTA.handle();
+    if (otaStarted) CabinetOTA.handle();
     if (otaResumePending) {
       otaResumePending = false;
       audioDspResumeAfterOta();
@@ -176,7 +183,7 @@ void otaManagerUpdate() {
       lastConnectAttemptMs = millis();
     }
 
-    if (millis() - lastConnectAttemptMs >= WIFI_RETRY_MS) {
+    if (uint32_t(millis() - lastConnectAttemptMs) >= WIFI_RETRY_MS) {
       WiFi.disconnect();
       startWifiAttempt();
     }
@@ -187,8 +194,14 @@ bool otaManagerIsConnected() {
   return wifiState == WIFI_STATE_CONNECTED;
 }
 
-bool otaManagerIsFsReady() {
-  return fsReady;
+bool otaManagerIsBootReady() { return bootReady; }
+bool otaManagerIsFsHealthy() { return fsHealthy; }
+uint32_t otaManagerReconnectCount() { return connectCount ? connectCount - 1 : 0; }
+const char* otaManagerState() {
+  if (!fsHealthy) return "STORAGE_FAULT";
+  if (otaUploadActive) return "UPLOADING";
+  if (otaPrepPending) return "PREPARED";
+  return otaStarted && wifiState == WIFI_STATE_CONNECTED ? "READY" : "OFFLINE";
 }
 
 void telemetryLogLine(const char* line) {
@@ -196,7 +209,7 @@ void telemetryLogLine(const char* line) {
 
   Serial.println(line);
 
-  if (wifiState == WIFI_STATE_CONNECTED && otaStarted) {
+  if (wifiState == WIFI_STATE_CONNECTED && telemetryStarted) {
     IPAddress bcast(static_cast<uint32_t>(WiFi.localIP()) |
                     ~static_cast<uint32_t>(WiFi.subnetMask()));
     if (udpTelemetry.beginPacket(bcast, UDP_TELEMETRY_PORT)) {

@@ -21,7 +21,7 @@ PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and
 | Qty | Component / Part Number | Package / Rating | Purpose & Notes |
 | :---: | :--- | :--- | :--- |
 | **8** | **Infineon IRLZ44NPBF** | **TO-220AB** through-hole (`55V`, `47A`, $R_{DS(\text{on})} \approx 22\text{–}28\text{ m}\Omega$ @ $V_{GS}=5\text{V}$) | Logic-level N-channel power MOSFETs ($V_{GS(\text{th})} = 1.0\text{–}2.0\text{V}$, $C_{iss} \approx 1700\text{ pF}$). Low-side cathode switches for the 8 RGBW channels (`W1, B1, R1, G1, W2, B2, R2, G2`). At `1.0–1.5A` per channel and $V_{GS}=5.0\text{V}$, each dissipates `< 70 mW` and requires no heatsink. |
-| **1** | **Micro Synchronous Step-Down (Buck) Converter (`4R7` / Mini-360 style)** | 4-pad PCB module (`IN+`, `IN-`, `VO+`, `OUT-`), molded `4.7 µH` (`4R7`) inductor, `2A` cont. / `3A` peak | Steps incoming `12V DC` (`~85–90%` efficiency) down to fixed `5.0V DC` (verified `5.0V` on bench) to power Pico `VSYS` (Pin 39) and `74AHCT541` $V_{CC}$ (Pin 20). Input and output `GND` pads share a solid internal copper plane. |
+| **1** | **Step-Down (Buck) Converter (inductor marked `4R7`; exact controller unknown)** | 4-pad PCB module (`IN+`, `IN-`, `VO+`, `OUT-`), molded `4.7 µH` (`4R7`) inductor, current rating and reverse-current behavior unverified | Steps incoming `12V DC` (efficiency unmeasured) down to fixed `5.0V DC` (verified `5.0V` on bench) to power Pico `VSYS` (Pin 39) and `74AHCT541` $V_{CC}$ (Pin 20). Input and output `GND` pads share a solid internal copper plane. |
 | **1** | **Main Cabinet 12V Power Supply** | `12V DC`, `150W` (`12.5A`) | Primary power supply for final cabinet installation (drives up to `6A–10A` total when all 8 RGBW channels are at full brightness). |
 | **1** | **Bench Testing 12V Wall Adapter** | `12V DC`, `1.0A–2.0A` (`12W–24W`), center-positive | Current-limited supply used on the bench with two short 1-segment test strips (`~310 mA` total peak draw: `160 mA` LEDs + `150 mA` logic) to limit fault energy during testing. |
 
@@ -30,7 +30,7 @@ PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and
 | Qty | Component / Value | Package / Rating | Purpose & Notes |
 | :---: | :--- | :--- | :--- |
 | **8** | **180 Ω Series Gate Resistors** *(spec range: `100–220 Ω`)* | `1/4W` through-hole axial metal film | Placed inline between `74AHCT541` outputs (Pins 18–11) and MOSFET Gate pins (Pin 1) to dampen high-frequency gate ringing and limit nanosecond switching inrush current. |
-| **8** | **10 kΩ Gate Pull-Down Resistors** | `1/4W` through-hole axial metal film (`±5%`) | Soldered directly between each MOSFET socket's Gate (Pin 1) and Source/GND (Pin 3). Clamps gates to `0V` ($\tau = R \times C \approx 17\ \mu\text{s}$) when the Pico or buffer is in reset/tri-state (`~8 kΩ` measured in-circuit). Delivers `4.91V` to the gate when driven HIGH through the `180 Ω` series stopper. |
+| **8** | **10 kΩ Gate Pull-Down Resistors** | `1/4W` through-hole axial metal film (`±5%`) | Soldered directly between each MOSFET socket's Gate (Pin 1) and Source/GND (Pin 3). Clamps gates to `0V` ($\tau = R \times C \approx 17\ \mu\text{s}$) when the buffer output is high impedance; MCU reset alone does not ensure this (`~8 kΩ` measured in-circuit). Delivers `4.91V` to the gate when driven HIGH through the `180 Ω` series stopper. |
 | **1** | **1000 µF Bulk Electrolytic Capacitor** *(spec range: `470–1000 µF`)* | Radial aluminum electrolytic, rated **`≥ 25V` or `35V`**, low-ESR | Placed directly across the incoming `+12V IN` and `GND IN` screw terminal pads. Acts as a local charge reservoir to absorb inductive flyback spikes and prevent `12V` rail sag during `20 kHz` 8-channel PWM switching. |
 | **1** | **0.1 µF (`100 nF`, code `104J`) Bypass Capacitor** | Red dipped metallized polyester film capacitor (`104J` = `0.1 µF ±5%`, low ESL, scavenged from `C9` of a Lepy `LP-2020A+`) | High-frequency local decoupling capacitor soldered diagonally across **Pin 20 ($V_{CC}$)** and **Pin 10 (`GND`)** on the underside of the `74AHCT541` DIP-20 socket. Supplies nanosecond gate-drive current spikes locally. |
 | **2** | **0.1 µF (`100 nF`) Door Switch Debounce Capacitors** | Small polarized electrolytic barrel capacitors (`0.1 µF`, `50V`, date code `1908`) | Hardware RC low-pass EMI/debounce filters placed across each reed switch input (`GP0` and `GP1`) to quiet Logic `GND` (Pin 3) to snub RF/PWM noise picked up by long cabinet wire runs. *(Positive `+` long lead to GPIO pin; negative `–` striped lead to Pin 3 `GND`).* |
@@ -51,7 +51,7 @@ PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and
 | Qty | Component / Description | Specification / Rating | Purpose & Notes |
 | :---: | :--- | :--- | :--- |
 | **2** | **12V Analog RGBW (WRGB) LED Strips** *(plus two 1-segment 3-LED test cuts)* | `12V DC` common-anode (`+12V`, `W`, `B`, `R`, `G` 5-pad layout), 3-LED series cut segments (`~20 mA` per color per segment; `~1.0–1.5A` per channel full strip) | Strip 1 (Left) and Strip 2 (Right) cabinet illumination. Purely resistive/diode loads. |
-| **2** | **Magnetic Door Reed Switches** (e.g., EPLZON / Sodial / Adafruit PID 375) | Normally Closed (`NC` / Form B: magnet near = switch closed to `GND` = `LOW`; door open = magnet away = switch open = pulled `HIGH`) | Discrete Left Door (`GP0`) and Right Door (`GP1`) sensing. |
+| **2** | **Magnetic Door Reed Switches** (installed part number unknown) | Required continuity: magnet near = closed to `GND` = `LOW`; magnet away = open = pulled `HIGH`. Bare-switch terminology: Form A / normally open; verify assembly behavior rather than its alarm-system label | Discrete Left Door (`GP0`) and Right Door (`GP1`) sensing. |
 | **4** | **Momentary Tactile Pushbuttons** | SPST Normally Open (`NO`) momentary switches | 4-button satellite pod (`Mode Next`, `Mode Prev`, `Brightness Up`, `Brightness Down`), active-LOW. |
 | **1** | **Large Double-Sided FR4 Perfboard** | Plated through-hole (`PTH`), `0.1"` (`2.54 mm`) grid, `~9 × 15 cm` or `10 × 16 cm` | Main circuit board substrate. Corner mounting holes enlarged with a `1/8"` (`3.2 mm`) HSS bit to fit `M3` hardware. |
 | **4** | **Nylon L-Shaped PCB Mounting Brackets ("Arcade Feet" / JAMMA Feet)** | `90°` insulated nylon brackets (`~20 mm` standoff height) + **4× `M3 × 6 mm` machine screws/nuts/washers** + **4× `#4 × 1/2"` or `#6 × 1/2"` pan-head wood screws** | Fastens the perfboard corners underneath the `3/4"` cabinet shelf (pre-drilled `3/8"` deep with a drill stop) with outward-facing flanges and full underside clearance. |
@@ -118,7 +118,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
    - **Underside:** The solder tails of the **7 skipped spacer pins (`Pins 4, 8, 12, 16, 20, 24, 28`)** are clipped flush before soldering so the heavy underside ground bus and gate traces can pass cleanly without bridging.
    - **Topside Keying:** A tiny piece of solid wire, toothpick sliver, or glue dab is placed into the top openings of holes **`4, 8, 12, 16, 20, 24, 28`** to physically key the socket and prevent plugging a MOSFET in offset by 1 pin (which would short Drain to Gate).
 3. **90° Axial Lead Twist:** Before seating each `IRLZ44N`, the lower `4–5 mm` tip of each of the three flat TO-220 legs is given a gentle **`90°` axial twist** with needle-nose pliers so the narrow edge enters the female header's internal "tuning-fork" leaf spring contacts cleanly without stretching or deforming them.
-4. **Board-Side Pull-Downs:** All 8× `10 kΩ` gate pull-down resistors and 8× `180 Ω` series gate resistors are soldered directly to the **underside socket pads** (`Pin 1` to `Pin 3` for `10 kΩ`), ensuring the gate line stays clamped to `GND` even if a MOSFET is unseated.
+4. **Board-Side Pull-Downs:** All 8× `10 kΩ` gate pull-down resistors and 8× `180 Ω` series gate resistors are soldered directly to the **underside socket pads** (`Pin 1` to `Pin 3` for `10 kΩ`), providing a passive discharge path at the socket when the buffer output is high impedance; an enabled HIGH output overrides this pull-down.
 
 ### C. Power Bus & Star-Ground Topology
 
@@ -130,7 +130,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 2. **`+12V` High-Current Anode Trunk:**
    - A heavy **`18–20 AWG` bare solid copper wire** links `+12V IN` $\rightarrow$ `Bulk Capacitor (+)` $\rightarrow$ `Buck Converter IN+` $\rightarrow$ `Strip 1 [+12V]` terminal $\rightarrow$ `Strip 2 [+12V]` terminal.
 3. **`+5V` Logic Power Chain:**
-   - Routed with **`22–24 AWG` hookup wire** (not `30 AWG` Kynar, to prevent voltage sag during `200–300 mA` Wi-Fi bursts) between **`Buck Converter VO+ (+5V)`**, **Pico Pin 39 (`VSYS`)**, and **`74AHCT541` Pin 20 ($V_{CC}$)**. Feeding `5V` into `VSYS` Pin 39 utilizes the Pico's onboard protection diode so USB can be safely plugged into `VBUS` Pin 40 while `12V` power is live.
+   - Routed with **`22–24 AWG` hookup wire** (not `30 AWG` Kynar, to prevent voltage sag during `200–300 mA` Wi-Fi bursts) between **`Buck Converter VO+ (+5V)`**, **Pico Pin 39 (`VSYS`)**, and **`74AHCT541` Pin 20 ($V_{CC}$)**. The Pico diode conducts from USB VBUS to VSYS; it does **not** block USB-sourced current from entering the directly connected buck output. Combined-power safety is unverified. Identify the module and its reverse-current tolerance before dual-power tests. If necessary, add external-source diode/ideal-diode ORing with buffer VCC kept within its specified supply range; this is a proposed remedy, not documented installed wiring. See [Pico 2 W datasheet §3.5](https://datasheets.raspberrypi.com/picow/pico-2-w-datasheet.pdf).
 4. **`+3.3V` Clean Audio/Sensor Rail:**
    - **Pico Pin 36 (`3V3_OUT`)** feeds **`INMP441` `3V` (`VDD`)** directly via `30 AWG` Kynar wire, and provides internal pull-ups (`INPUT_PULLUP`) for the switches and buttons.
 
@@ -189,7 +189,7 @@ Because TO-220 leads have a flat rectangular cross-section (`~0.5 mm × 0.9 mm` 
 
 | Left Header Pin # | GPIO / Name | Connected To in Build | Right Header Pin # | GPIO / Name | Connected To in Build |
 | :---: | :--- | :--- | :---: | :--- | :--- |
-| **Pin 1** | `GP0` | **Left Door Reed Switch** (`PIN_DOOR_LEFT = 0`, `INPUT_PULLUP` + `0.1 µF` cap to Pin 3) | **Pin 40** | `VBUS` | Unconnected (USB `5V` when plugged into PC; isolated from `VSYS` by onboard diode) |
+| **Pin 1** | `GP0` | **Left Door Reed Switch** (`PIN_DOOR_LEFT = 0`, `INPUT_PULLUP` + `0.1 µF` cap to Pin 3) | **Pin 40** | `VBUS` | Unconnected (USB `5V` when plugged into PC; feeds `VSYS` through onboard diode; not buck-output isolation) |
 | **Pin 2** | `GP1` | **Right Door Reed Switch** (`PIN_DOOR_RIGHT = 1`, `INPUT_PULLUP` + `0.1 µF` cap to Pin 3) | **Pin 39** | `VSYS` | **Buck Converter `+5.0V OUT`** (`22–24 AWG`, chained with `74AHCT541` Pin 20) |
 | **Pin 3** | `GND` | **Reed Switch Common `GND`** (and `–` leads of the two `0.1 µF` debounce caps) | **Pin 38** | `GND` | **Primary Logic `GND` Tie-In** (`22–24 AWG` from Buck `OUT-` / `74AHCT541` Pin 10) |
 | **Pin 4** | `GP2` | *Unused / Spare* | **Pin 37** | `3V3_EN` | *Unconnected* (Pulled high internally to `VSYS` to enable `3.3V` regulator) |
@@ -238,7 +238,7 @@ Looking at the front face of an `IRLZ44N` (TO-220 text facing you, legs pointing
 
 - **Active HIGH (`5.0V` from `74AHCT541`):** The `180 Ω` inline stopper and `10 kΩ` pull-down form a voltage divider delivering $V_{\text{Gate}} = 5.0\text{V} \times \frac{10000}{10000 + 180} \approx 4.91\text{V}$ (`0.5 mA` bleed current), driving the `IRLZ44N` into deep saturation ($R_{DS(\text{on})} \approx 22\text{–}28\text{ m}\Omega$).
 - **Active LOW (`0.0V` from `74AHCT541`):** Buffer actively sinks the `~1700 pF` gate charge to `0V` through `180 Ω` in nanoseconds.
-- **Tri-State / Reset / Unseated MCU:** The `10 kΩ` resistor bleeds trapped gate charge to `GND` with $\tau \approx 17\ \mu\text{s}$, preventing half-on floating FETs or LED flicker during boot.
+- **Buffer Output High Impedance:** The `10 kΩ` resistor discharges gate charge (nominal $\tau \approx 17\ \mu\text{s}$). With OE1/OE2 grounded, MCU reset/removal can leave buffer inputs floating while outputs remain enabled; gate pull-downs do not guarantee OFF. Input bias is unverified. Assess input pull-downs or controlled OE without changing the GPIO mapping, then measure startup/reset/shutdown outputs. See [SN74AHCT541 datasheet](https://www.ti.com/lit/ds/symlink/sn74ahct541.pdf).
 
 #### 2. Complete 8-Channel End-to-End Routing & `1×40` Header Pin Map
 
@@ -278,7 +278,7 @@ All four momentary pushbuttons use internal pull-ups (`INPUT_PULLUP`), require n
 - **Button 4 (Brightness Down):** Lead A $\rightarrow$ **Pico Physical Pin 15 (`GP11`)** (`PIN_BTN_BRIGHT_DOWN = 11`); Lead B $\rightarrow$ **Pico Pin 13 (`GND`)**.
 
 #### 3. `INMP441` I2S Digital MEMS Microphone Breakout (6 Pins)
-Positioned near the bottom-left turn of the Pico 2 W header (`Pins 17–20`) and wired with `30 AWG` Kynar wire:
+Positioned near the top-right end of the Pico 2 W header (`Pins 17–20`, USB facing down as above) and wired with `30 AWG` Kynar wire:
 
 | Breakout Silkscreen Label | Standard I2S Name | Connected To (Pico 2 W) | Physical Pin # | Function & Hardware Notes |
 | :--- | :--- | :--- | :---: | :--- |
@@ -288,3 +288,7 @@ Positioned near the bottom-left turn of the Pico 2 W header (`Pins 17–20`) and
 | **`CLK`** | `SCK` / `BCLK` | **`GP13`** (`PIN_I2S_BCLK = 13`) | **Pin 17** | Continuous `1.024 MHz` I2S Bit Clock (`~1.65V` average DC when toggling) |
 | **`LRCL`** | `WS` / `LRCLK` | **`GP14`** (`PIN_I2S_WS = 14`) | **Pin 19** | `16 kHz` Word Select / Frame Sync Clock (Earle Philhower `I2S` library forces `WS = BCLK + 1`, so `GP14` is mandatory when `BCLK = GP13`; `~1.65V` average DC) |
 | **`DOUT`** | `SD` / `DATA` | **`GP15`** (`PIN_I2S_DATA = 15`) | **Pin 20** | Serial Data Out (24-bit MSB-aligned signed PCM in 32-bit stereo frame slots; quiet room baseline `~1,600` counts on 16-bit scale, hand clap peak `~26,400 / 32,767`) |
+
+## Outstanding Bench Acceptance
+
+Installed buck and reed part numbers remain unknown. `4R7` identifies the inductor, not the regulator. Verify both reed assemblies with a continuity meter: magnet near closed, magnet away open ([manufacturer terminology](https://www.reedswitchdevelopments.com/reed-switch-operation/)). Power isolation, buffer reset behavior and full-load electrical/thermal performance require measurements; telemetry cannot establish them. Follow [bench validation](bench_validation.md) and record results in HANDOFF.md. Cabinet installation is unconfirmed.

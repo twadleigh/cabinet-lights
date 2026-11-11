@@ -10,7 +10,7 @@ Current Phase 2 firmware implements I2S/DC-blocked peak telemetry, atomic audio 
 
 ### 1.1 Dual-Core Hardware Partitioning (RP2350 @ 150 MHz)
 
-The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision FPU and ARMv8-M DSP SIMD extensions) is partitioned across its two physical cores to guarantee zero-jitter PWM rendering alongside real-time audio processing:
+The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision FPU and ARMv8-M DSP SIMD extensions) is partitioned across its two physical cores to separate hardware-timed PWM from audio processing; worst-case interrupt and render latency still require measurement:
 
 - **Core 0 — Hardware IO, Perceptual Kinematics & Network Services (`setup()` / `loop()` @ ~200 Hz / 5 ms):**
   - **8-Channel Ultrasonic PWM (`20 kHz`, 7500-tick (6.67 ns/tick)):** Drives two 12V RGBW LED strips via a `74AHCT541N` 5V octal buffer and 8× `IRLZ44N` low-side MOSFETs. Channels are paired across 4 hardware PWM slices on the right header:
@@ -19,11 +19,11 @@ The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision 
     - **Slice 2:** `GP20` (`2A` $\rightarrow$ `W2`), `GP21` (`2B` $\rightarrow$ `B2`)
     - **Slice 5:** `GP26` (`5A` $\rightarrow$ `R2`), `GP27` (`5B` $\rightarrow$ `G2`)
   - **Input Debouncing (`35 ms` non-blocking):** Evaluates Left/Right magnetic door reed switches (`GP0`, `GP1`) and the 4-button satellite pod (`GP8–GP11`).
-  - **Perceptual Color & Fade Engine:** Executes CIE $L^*$ ($\gamma = 2.4$) cross-fades, $S^1$ shortest-arc ambient hue walks, and audio-reactive spatial rendering from Core 1 state snapshots.
-  - **Serial & Wireless Services:** Owns all USB `Serial` telemetry, `ArduinoOTA` (`cabinet-lights.local`) firmware updates, and Stage 3 UDP audio capture streaming.
+  - **Perceptual Color & Fade Engine:** Executes empirical gamma-2.4 cross-fades, $S^1$ shortest-arc ambient hue walks, and audio-reactive spatial rendering from Core 1 state snapshots.
+  - **Serial & Wireless Services:** Owns all USB `Serial` telemetry, `ArduinoOTA` (`cabinet-lights.local`) firmware updates, and Phase 4 UDP audio capture streaming.
 - **Core 1 — Real-Time Audio DSP & Edge Inference (`setup1()` / `loop1()`):**
   - **Stage A (Deterministic Fast Loop — Every `4 ms` / 64 samples @ `16 kHz`):** Continuous I2S DMA ingestion from the `INMP441` MEMS microphone (`GP13` BCLK, `GP14` WS, `GP15` DATA), DC blocking, 4-band Direct-Form II Transposed IIR biquad filtering, adaptive noise-floor subtraction, rolling AGC normalization, and instantaneous-attack exponential decay envelopes.
-  - **Stage B (TinyML Semantic Director — Every `1.5 s`):** Low-priority background evaluation of a `[1, 93, 32, 1]` `int8` Log-Mel spectrogram using a 24.5K-parameter 2D Depthwise Separable CNN (`DS-CNN`) to classify the room's macro acoustic state (`NO_MUSIC`, `SPEECH_DIALOGUE`, `AMBIENT_POSTROCK`, `MATH_ROCK`).
+  - **Stage B (TinyML Semantic Director — Every `1.5 s`):** Low-priority background evaluation of a `[1, 92, 32, 1]` `int8` Log-Mel spectrogram using a 9,376-kernel-weight 2D Depthwise Separable CNN (`DS-CNN`) to classify the room's macro acoustic state (`NO_MUSIC`, `SPEECH_DIALOGUE`, `AMBIENT_POSTROCK`, `MATH_ROCK`).
   - **Strict Dual-Core Safety Invariant:** Core 1 must **never** call `Serial`, `analogWrite`, or touch GPIO outputs. All inter-core communication occurs via lock-free / double-buffered shared state structs (`AudioEnergy`, `AudioDspStatus`, `MacroState`).
 
 ---
@@ -32,7 +32,7 @@ The Raspberry Pi Pico 2 W (`RP2350A`, Dual ARM Cortex-M33 with single-precision 
 
 Physical user actions unconditionally preempt automated acoustic states:
 
-1. **Tier 1 — Physical Overrides (Immediate, Zero-Latency on Core 0):**
+1. **Tier 1 — Physical Overrides (Debounced on Core 0):**
    - **Doors Open (`PIN_DOOR_LEFT == HIGH || PIN_DOOR_RIGHT == HIGH`):** Highest priority. Smoothly cross-fades all 8 channels over 5 seconds in perceptual lightness space to 100% calibrated Photopic Task White (`W: 1.00, R: 1.00, G: 0.90, B: 0.86`), overriding all ambient or audio animations.
    - **Manual Mode Selection:** Button 1 (`PIN_BTN_MODE_NEXT` / `GP8`) and Button 2 (`PIN_BTN_MODE_PREV` / `GP9`) cycle Normal and Debug. Normal runs the 30-second hue walk and door fade; Debug cycles eight channels at full duty. Buttons 3/4 (`GP10`/`GP11`) adjust ambient brightness (or future mode-specific parameters). Debug is an explicit bench override of door rendering.
 2. **Tier 2 — Acoustic Macro-Context States (Active when in `AUDIO_REACTIVE` Mode with Doors Closed):**
@@ -42,8 +42,8 @@ Physical user actions unconditionally preempt automated acoustic states:
 
 ## 2. Perceptual Color Science & Door Kinematics (Core 0)
 
-1. **CIE $L^*$ Power-Law Gamma Correction ($\gamma = 2.4$):**
-   - Human brightness perception is non-linear (approximating a power law with $\gamma \approx 2.4$). Linear PWM ramps appear to jump to full brightness in the first 20% of travel.
+1. **Empirical Per-Channel Power-Law Mapping ($\gamma = 2.4$):**
+   - The implemented per-channel `powf(L, 2.4)` curve is an empirical perceptual mapping, not the piecewise CIE L* luminance transform. Pedestal/minimum-pulse compensation follows this curve.
    - All internal colors operate in normalized perceptual lightness $L \in [0,1]$. At the hardware boundary, active ticks are $A=L^{2.4}(7500-20)$. Zero lightness is strictly off; for $0<A<10$, dither between 0 and 30 ticks with probability $A/10$. Otherwise dither between adjacent integers around $20+A$, with full scale equal to 7500 ticks.
    - `PWM_PEDESTAL_TICKS = 20` (133 ns), `PWM_MIN_PULSE_TICKS = 30` (200 ns), and 6.67 ns native ticks match the measured gate-drive floor. The RAM-resident 20 kHz wrap ISR uses Q0.16 accumulators and paired register writes. Hardware wrap is 7499, giving 7500 ticks per period; compare 7500 is fully on.
 2. **5-Second Perceptual Cross-Fade & Constant-Speed Reversal:**
@@ -84,10 +84,10 @@ Physical user actions unconditionally preempt automated acoustic states:
    - Standard beat trackers compute autocorrelation $R(\tau) = \sum_t E(t) E(t - \tau)$ over a 2–4 second window to lock a PLL oscillator onto a single periodic inter-onset interval (assuming isochronous $4/4$ or $3/4$ meters).
    - In math rock (*Don Caballero, American Football, TTNG, Toe*), rhythmic structure is built from **non-isochronous additive groupings** ($7/8$ as $2+2+3$ or $3+2+2$; $5/4$ as $3+2$; $11/8$ as $3+3+3+2$), alternating time signatures, metric modulations, and rapid two-handed fretboard tapping.
    - Across a 2–4 second window, asymmetric beat intervals create competing sub-peaks in autocorrelation, causing PLLs and comb filters to lose lock, phase-slip, or flash out of time.
-3. **Zero-Lag Multi-Band Transient Envelopes:**
-   - By splitting the signal through a 4-band minimum-phase IIR biquad bank (updated every `64` samples = **`4.0 ms`**) and triggering **instantaneous-attack ($0\text{ ms}$), exponential-decay envelopes** whenever a band's energy exceeds its adaptive baseline:
-     - Every odd-meter kick, ghost-note snare, and tapped guitar note fires within `< 4 ms` of the physical acoustic waveform.
-     - Steady $4/4$ music also pulses in rock-solid phase without PLL hunting during drum fills.
+3. **Transient Envelopes Without Beat Locking:**
+   - Planned blocks contain 64 samples (4 ms at 16 kHz). Instantaneous attack means no additional envelope smoothing after a block is processed; it does not mean zero acoustic-to-light latency.
+   - End-to-end delay includes sample age (up to one block), frequency-dependent IIR delay, DSP scheduling, snapshot publication, Core 0 rendering (~5 ms currently), and the next PWM period (50 µs). Measure these separately before making a response-time claim.
+   - Phase 3 target: service each 64-sample block within 4 ms and keep scheduling-plus-render delay below 10 ms under normal networking, excluding filter delay and OTA. This is a target, not measured acceptance. OTA deliberately suspends audio and blocks rendering.
 
 ---
 
@@ -183,30 +183,34 @@ In `AMBIENT_MODE_AUDIO_REACTIVE`, the 8 channels (`s1.w, s1.r, s1.g, s1.b` and `
 
 ### 4.1 Semantic Role
 
-The neural network **never** attempts to detect individual beats. It executes once every **1.5 seconds** in a low-priority background slice on Core 1 ($< 15\text{ ms}$ inference time, $< 1\%$ CPU load) to identify the overarching acoustic environment and adjust DSP parameters accordingly.
+The neural network **never** attempts to detect individual beats. It is planned to execute once every **1.5 seconds** on Core 1 (runtime and CPU load unmeasured) to identify the overarching acoustic environment and adjust DSP parameters accordingly.
 
 ### 4.2 Log-Mel Spectrogram Feature Extraction
 
 - **Audio Window:** `1.5 seconds` @ $16,000\text{ Hz}$ mono PCM $= 24,000\text{ samples}$.
-- **STFT Framing:** `512`-sample (`32 ms`) periodic Hann window with `256`-sample (`16 ms`, 50% overlap) hop stride $\rightarrow$ `93` time frames.
+- **STFT Framing:** `512`-sample (`32 ms`) periodic Hann window with `256`-sample (`16 ms`, 50% overlap) hop stride, no centering or end padding: `1 + floor((24000 - 512) / 256) = 92` full frames (discard final 192 samples).
 - **Mel Filterbank:** `32` triangular Mel bins spanning $50\text{ Hz} \text{ to } 8,000\text{ Hz}$, log-compressed ($\log_{10}(E_{\text{mel}} + \epsilon)$) and quantized to `int8` ($[-128, +127]$).
-- **Input Tensor Dimensions:** `[1, 93, 32, 1]` (`2,976 bytes`).
+- **Input Tensor Dimensions:** `[1, 92, 32, 1]` (`2,944 bytes`).
+
+Training/runtime preprocessing contract (future implementation): signed PCM16 / 32768, continuous DC blocker R=0.995 with reset at stream start, no AGC on classifier input; periodic Hann `0.5 - 0.5*cos(2*pi*n/512)`. Use an unnormalized real FFT, power `abs(FFT)^2 / 512` for bins 0..256 without doubling. Place 34 equally spaced HTK mel points (`2595*log10(1+f/700)`) from 50 to 8000 Hz; evaluate triangular weights at FFT-bin frequencies, peak height 1, no area normalization. Features are `log10(max(mel_power, 1e-12))`, oldest time first, ascending mel, NHWC. No per-clip normalization. Export calibration-derived input scale/zero-point and quantize with nearest rounding (ties away from zero), clamp to [-128,127]; do not invent scale values before training. Share golden PCM/features/tensor fixtures across training and firmware before model acceptance.
 
 ### 4.3 2D Depthwise Separable CNN (`DS-CNN`) Topology
 
 ```text
-Input Tensor: [1, 93, 32, 1] (int8 Log-Mel Spectrogram)
+Input Tensor: [1, 92, 32, 1] (int8 Log-Mel Spectrogram)
   │
-  ├─► Stem Conv2D: 16 filters, 3×3 kernel, stride (2,2), BatchNorm + ReLU   ──► [47 × 16 × 16]
-  ├─► DS-Block 1:  DWConv 3×3 (s 1,1) + PWConv 1×1 (32 filters) + BN + ReLU ──► [47 × 16 × 32]
-  ├─► DS-Block 2:  DWConv 3×3 (s 2,2) + PWConv 1×1 (32 filters) + BN + ReLU ──► [24 ×  8 × 32]
-  ├─► DS-Block 3:  DWConv 3×3 (s 1,1) + PWConv 1×1 (64 filters) + BN + ReLU ──► [24 ×  8 × 64]
+  ├─► Stem Conv2D: 16 filters, 3×3 kernel, stride (2,2), BatchNorm + ReLU   ──► [46 × 16 × 16]
+  ├─► DS-Block 1:  DWConv 3×3 (s 1,1) + PWConv 1×1 (32 filters) + BN + ReLU ──► [46 × 16 × 32]
+  ├─► DS-Block 2:  DWConv 3×3 (s 2,2) + PWConv 1×1 (32 filters) + BN + ReLU ──► [23 ×  8 × 32]
+  ├─► DS-Block 3:  DWConv 3×3 (s 1,1) + PWConv 1×1 (64 filters) + BN + ReLU ──► [23 ×  8 × 64]
   ├─► DS-Block 4:  DWConv 3×3 (s 2,2) + PWConv 1×1 (64 filters) + BN + ReLU ──► [12 ×  4 × 64]
   ├─► GlobalAveragePooling2D (collapses 12×4 spatial grid -> time-shift invariant) ──► [64]
   └─► Dense (64 -> 4 units) + Softmax ──► [NO_MUSIC, SPEECH_DIALOGUE, AMBIENT_POSTROCK, MATH_ROCK]
 ```
 
-- **Footprint on RP2350:** `~24,500` parameters (`~28 KB` `int8` TFLite Micro flatbuffer in Flash, `~32 KB` Tensor Arena in SRAM, `~1.8 MMACs`, `~14 ms` execution via `CMSIS-NN`).
+- All convolutions use SAME padding (extra padding on bottom/right), depth multiplier 1. Reproduce the dimensions/counts with `python3 scripts/check_model_spec.py`: `9,376` kernel weights and `1,484,544` MACs including dense, excluding bias/BN/pooling/activation/softmax and preprocessing. Int8 kernels alone occupy 9,376 bytes. Biases, folded BN, quantization metadata and flatbuffer structure add storage. Exported model size, tensor arena and inference time remain unmeasured.
+- **Scheduling prerequisite:** A synchronous interpreter call is not preemptible merely because it is described as low priority. Implement bounded inference work slices interleaved with audio service (including splitting any operator exceeding the remaining 4 ms budget), or demonstrate a real preemptive strategy before Phase 4 integration. Reject/defer classifier work that cannot meet the measured deadline. An assumed 14 ms monolithic call would already miss multiple blocks.
+- Budget DMA capacity in stereo bytes (`64 frames × 8 bytes = 512 bytes` per 4 ms); include worst-case service gaps, feature extraction and margin. DMA buffering alone does not remove latency. Measure maximum block age, actual overflow events, inference duration and render delay with networking/telemetry enabled. Current processed-sample telemetry is not an overflow counter.
 
 ### 4.4 Target Macro Classes & Temporal Hysteresis
 
@@ -223,12 +227,8 @@ Input Tensor: [1, 93, 32, 1] (int8 Log-Mel Spectrogram)
 
 ## 5. Staged Development Roadmap
 
-1. **Phase 1 — Complete Bench Verification (Core 0 Door/Button Behavior + Core 1 Mic Sanity):**
-   - Flash current Stage 1 firmware over USB and verify all 8 MOSFET channels, 5-second perceptual door fade (including mid-fade reversals via the breadboard reed switch jumpers), all 4 satellite pushbuttons (`MODE NEXT`, `MODE PREV`, `UP`, `DOWN`), and verify live `INMP441` I2S baseline/clap readings on `Serial`.
-2. **Phase 2 — Wireless Autonomy (Non-Blocking Wi-Fi, `ArduinoOTA` & UDP Telemetry) $\rightarrow$ Cabinet Installation:**
-   - Implement a non-blocking Wi-Fi + `ArduinoOTA` (`cabinet-lights.local`) manager on Core 0 (using an untracked `include/secrets.h` for Wi-Fi credentials so the 200 Hz PWM/door loop never stalls even if Wi-Fi is unreachable).
-   - Add lightweight UDP wireless telemetry so `Serial`-style logs (`[DOOR]`, `[BTN]`, `[AUDIO]`) can be monitored from the Linux workstation once USB is unplugged.
-   - Verify OTA flashing on the bench, then **physically install the controller into the cabinet**.
+1. **Phase 1 — Implemented and previously bench-verified:** Core 0 PWM, doors/buttons and Core 1 I2S sanity. Recheck affected behavior after review fixes using [bench validation](bench_validation.md).
+2. **Phase 2 — Implemented; review fixes await deployment/bench validation:** Non-blocking Wi-Fi connection/retry, guarded OTA and Serial/UDP telemetry. Active OTA transfers block Core 0 controls/rendering while hardware PWM holds commanded levels. Physical cabinet installation remains unconfirmed.
 3. **Phase 3 — In-Situ Audio DSP & Spatial Choreography (Flashed & Tuned via OTA):**
    - Implement the Core 1 DC blocker, 4-band `DF2T` IIR biquad filter bank, adaptive noise floor + rolling AGC peak tracker, instantaneous-attack exponential decay envelopes, and `pingPongParity` detector.
    - Add `AMBIENT_MODE_AUDIO_REACTIVE` on Core 0 and tune the per-band gains and thresholds in-situ against the real room acoustics over Wi-Fi.

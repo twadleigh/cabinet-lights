@@ -22,13 +22,15 @@
 
 ---
 
+Use snake_case for new filenames when naming is unconstrained; preserve required tool/dependency conventions.
+
 ## 2. Project Overview & Hardware Platform
 
 - **Target Microcontroller:** Raspberry Pi Pico 2 W (RP2350, Dual Cortex-M33 @ 150 MHz with single-precision FPU & ARM DSP SIMD).
 - **Framework & Core:** Earle Philhower `arduino-pico` (`rpipico2w`) via PlatformIO.
 - **Power Delivery:**
   - `3.3V` logic from Pico Pin 36 (`3V3_OUT`) powering the `INMP441` mic and internal GPIO pull-ups.
-  - `5.0V` rail from a synchronous buck converter (`4R7`) powering Pico `VSYS` (Pin 39) and the `SN74AHCT541N` octal buffer (`Pin 20 VCC`, bypassed with a `0.1 µF` `104J` film cap across Pins 20 & 10).
+  - `5.0V` rail from a buck converter (inductor marked `4R7`; controller identity unconfirmed) powering Pico `VSYS` (Pin 39) and the `SN74AHCT541N` octal buffer (`Pin 20 VCC`, bypassed with a `0.1 µF` `104J` film cap across Pins 20 & 10).
   - `12V DC` external supply (`150W` cabinet / `12V 1–2A` bench) with `1000 µF` bulk cap and star-ground topology driving two 4-channel (RGBW) LED strips via 8× `IRLZ44N` low-side MOSFETs (`180 Ω` series gate resistors + `10 kΩ` gate-to-source pull-downs).
 
 ---
@@ -62,13 +64,13 @@
 - **Core 0 (`setup()` / `loop()` @ ~200 Hz):**
   - Owns all `Serial` telemetry, hardware PWM outputs and their RAM-resident wrap ISR, reed switch / button debouncing, door fade kinematics, and Wi-Fi/OTA services.
   - Default startup door state is always **CLOSED** (`LOW`).
-  - Door open triggers a 5-second linear cross-fade in CIE $L^*$ perceptual space ($\gamma = 2.4$) to photopic task white (`W: 1.0, R: 1.0, G: 0.90, B: 0.86`).
+  - Door open triggers a 5-second linear cross-fade in empirical gamma-2.4 perceptual space ($\gamma = 2.4$) to photopic task white (`W: 1.0, R: 1.0, G: 0.90, B: 0.86`).
   - `MODE_NORMAL`: door closed runs a 30-second random shortest-arc hue walk with 13 brightness steps (0–100%, default level 4 / 9%); door open fades to task white at constant speed. `MODE_DEBUG`: cycles all eight channels at 100% for 1.5 seconds each. Audio-reactive rendering is planned for Phase 3.
 - **Core 1 (`setup1()` / `loop1()`):**
   - Currently owns 16 kHz I2S ingestion, DC blocking, peak-hold telemetry, and OTA pause/resume. Phase 3/4 extends this with 4-band `DF2T` IIR filtering, adaptive noise-floor + rolling AGC normalization, envelope followers, and background TinyML classification.
   - **Strict Dual-Core Safety Rule:** Never call `analogWrite`, touch GPIO outputs, or print to `Serial` from Core 1. Core 1 communicates with Core 0 strictly via lock-free / double-buffered shared state structs.
 - **Audio DSP Guardrails:**
-  - Do **not** refactor audio processing into an FFT visualizer or phase-locked BPM loop. The system uses a deterministic 4-band Direct-Form II Transposed IIR biquad bank + instantaneous-attack exponential decay envelopes (for math-rock odd-meter resilience) paired with a 4-class DS-CNN macro classifier. See [doc/AUDIO_VISION.md](doc/AUDIO_VISION.md).
+  - Do **not** refactor audio processing into an FFT visualizer or phase-locked BPM loop. The Phase 3/4 design uses a deterministic 4-band Direct-Form II Transposed IIR biquad bank + instantaneous-attack exponential decay envelopes (for math-rock odd-meter resilience) paired with a 4-class DS-CNN macro classifier. See [doc/AUDIO_VISION.md](doc/AUDIO_VISION.md).
 
 ---
 
