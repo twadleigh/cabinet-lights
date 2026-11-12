@@ -6,5 +6,5 @@ struct StripColor {
 };
 
 void ledDriverInit();
-void setStripOutputs(const StripColor& s1, const StripColor& s2);
+void setStripOutputs(const StripColor& workShelf, const StripColor& cabinetPerimeter);
 void setAllOutputsOff();

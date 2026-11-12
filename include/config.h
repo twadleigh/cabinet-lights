@@ -4,15 +4,15 @@
 // ============================================================================
 // 8-Channel PWM Outputs (Connected via 74AHCT541 to IRLZ44N Gates)
 // ============================================================================
-constexpr uint8_t PIN_PWM_W1 = 16;  // GP16 (Physical Pin 21) - Strip 1 White
-constexpr uint8_t PIN_PWM_B1 = 17;  // GP17 (Physical Pin 22) - Strip 1 Blue
-constexpr uint8_t PIN_PWM_R1 = 18;  // GP18 (Physical Pin 24) - Strip 1 Red
-constexpr uint8_t PIN_PWM_G1 = 19;  // GP19 (Physical Pin 25) - Strip 1 Green
+constexpr uint8_t PIN_PWM_WORK_SHELF_W = 16;  // GP16 (Physical Pin 21) - Work shelf (strip 1) White
+constexpr uint8_t PIN_PWM_WORK_SHELF_B = 17;  // GP17 (Physical Pin 22) - Work shelf (strip 1) Blue
+constexpr uint8_t PIN_PWM_WORK_SHELF_R = 18;  // GP18 (Physical Pin 24) - Work shelf (strip 1) Red
+constexpr uint8_t PIN_PWM_WORK_SHELF_G = 19;  // GP19 (Physical Pin 25) - Work shelf (strip 1) Green
 
-constexpr uint8_t PIN_PWM_W2 = 20;  // GP20 (Physical Pin 26) - Strip 2 White
-constexpr uint8_t PIN_PWM_B2 = 21;  // GP21 (Physical Pin 27) - Strip 2 Blue
-constexpr uint8_t PIN_PWM_R2 = 26;  // GP26 (Physical Pin 31) - Strip 2 Red
-constexpr uint8_t PIN_PWM_G2 = 27;  // GP27 (Physical Pin 32) - Strip 2 Green
+constexpr uint8_t PIN_PWM_CABINET_PERIMETER_W = 20;  // GP20 (Physical Pin 26) - Cabinet perimeter (strip 2) White
+constexpr uint8_t PIN_PWM_CABINET_PERIMETER_B = 21;  // GP21 (Physical Pin 27) - Cabinet perimeter (strip 2) Blue
+constexpr uint8_t PIN_PWM_CABINET_PERIMETER_R = 26;  // GP26 (Physical Pin 31) - Cabinet perimeter (strip 2) Red
+constexpr uint8_t PIN_PWM_CABINET_PERIMETER_G = 27;  // GP27 (Physical Pin 32) - Cabinet perimeter (strip 2) Green
 
 // ============================================================================
 // Input Sensors & Buttons (Active-LOW with internal pull-ups)
@@ -56,6 +56,11 @@ static_assert(PWM_MIN_PULSE_TICKS > PWM_PEDESTAL_TICKS,
               "PWM_MIN_PULSE_TICKS must exceed PWM_PEDESTAL_TICKS");
 static_assert(PWM_MAX_DUTY > PWM_MIN_PULSE_TICKS,
               "PWM_MAX_DUTY must exceed PWM_MIN_PULSE_TICKS");
+
+// Ambient-only perceptual multiplier, applied before task-white blending and gamma.
+constexpr float WORK_SHELF_AMBIENT_FRACTION = 0.50f;
+static_assert(WORK_SHELF_AMBIENT_FRACTION >= 0.0f && WORK_SHELF_AMBIENT_FRACTION <= 1.0f,
+              "Work shelf ambient fraction must be between zero and one");
 
 constexpr float OPEN_PERCEPTUAL_W = 1.00f; // Max white level when door is open
 constexpr float OPEN_PERCEPTUAL_R = 1.00f; // Photopic white red component

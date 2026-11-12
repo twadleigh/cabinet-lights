@@ -5,8 +5,8 @@
 #include <hardware/sync.h>
 
 static constexpr uint8_t PWM_PINS[8] = {
-  PIN_PWM_W1, PIN_PWM_B1, PIN_PWM_R1, PIN_PWM_G1,
-  PIN_PWM_W2, PIN_PWM_B2, PIN_PWM_R2, PIN_PWM_G2
+  PIN_PWM_WORK_SHELF_W, PIN_PWM_WORK_SHELF_B, PIN_PWM_WORK_SHELF_R, PIN_PWM_WORK_SHELF_G,
+  PIN_PWM_CABINET_PERIMETER_W, PIN_PWM_CABINET_PERIMETER_B, PIN_PWM_CABINET_PERIMETER_R, PIN_PWM_CABINET_PERIMETER_G
 };
 
 struct DitherTarget {
@@ -75,8 +75,8 @@ static DitherTarget perceptualToTarget(float val) {
   return {base, static_cast<uint16_t>(fraction), 1};
 }
 
-void setStripOutputs(const StripColor& s1, const StripColor& s2) {
-  const float values[8] = {s1.w, s1.b, s1.r, s1.g, s2.w, s2.b, s2.r, s2.g};
+void setStripOutputs(const StripColor& workShelf, const StripColor& cabinetPerimeter) {
+  const float values[8] = {workShelf.w, workShelf.b, workShelf.r, workShelf.g, cabinetPerimeter.w, cabinetPerimeter.b, cabinetPerimeter.r, cabinetPerimeter.g};
   DitherTarget next[8];
   for (uint8_t i = 0; i < 8; ++i) next[i] = perceptualToTarget(values[i]);
   // Publish a complete frame atomically with respect to the Core 0 ISR. Keep

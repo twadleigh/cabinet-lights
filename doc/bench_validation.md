@@ -16,7 +16,7 @@ Confirm channel routing and PWM with a scope if available: 20 kHz period, low-le
 
 ## 3. Deploy and check controls/audio
 
-Use `.venv/bin/pio run -e pico2w-usb -t upload` only after power arrangements are settled; keep BOOTSEL recovery available. Confirm new `[HEALTH] Build:` identity over Serial or UDP. At boot, initial door state is CLOSED; an open contact becomes OPEN after debounce. Test both doors separately and together, 5-second full-scale fade and mid-fade reversal, Normal/Debug, and all 13 brightness steps (default 9%, off at step 0).
+Use `.venv/bin/pio run -e pico2w-usb -t upload` only after power arrangements are settled; keep BOOTSEL recovery available. Confirm new `[HEALTH] Build:` identity over Serial or UDP. At boot, initial door state is CLOSED; an open contact becomes OPEN after debounce. Test both doors separately and together, 5-second full-scale fade and mid-fade reversal, Normal/Debug, and all 13 brightness steps (default 30%, off at step 0).
 
 Press mode+brightness together: both apply once. Press Next+Prev or Up+Down together: that pair cancels when debounced in the same sample. Held buttons must not repeat; release/repress must work. Test at both brightness limits. Clap/silence should produce a finite decaying mic envelope; `[HEALTH] Samples` should advance near 16,000/s during normal capture. The four reported bands are still scaled copies of one peak, not a filter bank.
 

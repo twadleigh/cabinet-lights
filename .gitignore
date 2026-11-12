@@ -8,3 +8,4 @@ __pycache__/
 include/secrets.h
 compile_commands.json
 .cache/clangd/
+.DS_Store

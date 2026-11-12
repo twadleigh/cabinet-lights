@@ -64,9 +64,9 @@ PWM uses 20 kHz, 7500 native ticks (6.67 ns/tick), `PWM_PEDESTAL_TICKS = 20` and
 
 ## 2. Final Board Layout & Physical Construction
 
-![Top view of the assembled Cabinet Lighting Controller on the test bench](cabinet-controller-top.png)
+![Top view of the assembled Cabinet Lighting Controller on the test bench](cabinet_controller_top.png)
 
-![Bottom view (point-to-point wiring & star-ground bus) of the Cabinet Lighting Controller](cabinet-controller-bottom.png)
+![Bottom view (point-to-point wiring & star-ground bus) of the Cabinet Lighting Controller](cabinet_controller_bottom.png)
 
 ### A. Three-Zone Spatial Partitioning (As-Built Bench Orientation — USB Facing Down)
 
@@ -294,3 +294,10 @@ Positioned near the top-right end of the Pico 2 W header (`Pins 17–20`, USB fa
 Installed buck and reed part numbers remain unknown. `4R7` identifies the inductor, not the regulator. Replacement reed assemblies must provide magnet-near closed and magnet-away open continuity ([manufacturer terminology](https://www.reedswitchdevelopments.com/reed-switch-operation/)). Power isolation, buffer reset behavior and full-load electrical/thermal performance require measurements; telemetry cannot establish them. Follow [bench validation](bench_validation.md) and record results in HANDOFF.md. Cabinet installation is complete.
 
 Bench status (2026-11-11): user confirms electrolytic polarity and comprehensive post-solder continuity checks; functional tests showed no wiring errors. Buffer connections were confirmed as +5 V→20, capacitor between 20 and 1, and GND→1→19→10. No star-ground rewiring is indicated by the visual/functional review. Five-minute short-segment warming check left all checked components cool to touch after 12 V removal. Subsequently installed in the cabinet: approximately ten minutes at door-open task white left nothing particularly warm by user report. Instrumented full-load thermal/electrical acceptance remains pending; the user retains the bright warm-white profile rather than all-channel maximum.
+
+### Installed strip roles
+
+- **Work shelf (strip 1):** directly illuminates the bar work shelf.
+- **Cabinet perimeter (strip 2):** runs up the front left side, through the arch, and down the front right side; also illuminates the shelf.
+
+Normal ambient mode uses the same hue on both strips, with work-shelf perceptual brightness at 50% of the perimeter before gamma mapping. Both retain the full configured warm-white profile when doors are open. Physical channel assignments are unchanged.

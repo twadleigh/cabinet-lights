@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
       assert(systemDoorState == DOOR_STATE_OPEN);
       testPins[8] = testPins[10] = LOW;
       loop(); testMillis += 36; loop();
-      assert(currentMode == MODE_DEBUG && brightnessIndex == 5);
+      assert(currentMode == MODE_DEBUG && brightnessIndex == 9);
       testMillis += 1000; loop();
       bool health = false, running = false;
       for (auto& line : Serial.lines) {

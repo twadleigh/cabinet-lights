@@ -45,12 +45,20 @@ static void testPwm() {
 static void testDoors() {
   testMillis = 0;
   doorEngineInit(false);
-  assert(doorEngineGetAmbientBrightness() == 0.09f);
+  assert(doorEngineGetAmbientBrightness() == 0.30f);
   StripColor a, b;
+  doorEngineUpdate(a, b);
+  assert(std::fabs(a.r - b.r * 0.5f) < 1e-6f);
+  assert(std::fabs(a.g - b.g * 0.5f) < 1e-6f);
+  assert(std::fabs(a.b - b.b * 0.5f) < 1e-6f);
   doorEngineSetDoorState(true);
   testMillis = 2000;
   doorEngineUpdate(a, b);
   assert(std::fabs(doorProgress - 0.4f) < 1e-6f);
+  // The task-white contribution is never attenuated, even mid-fade.
+  assert(std::fabs(a.r - (b.r * 0.5f + 0.2f * OPEN_PERCEPTUAL_R)) < 1e-6f);
+  assert(std::fabs(a.g - (b.g * 0.5f + 0.2f * OPEN_PERCEPTUAL_G)) < 1e-6f);
+  assert(std::fabs(a.b - (b.b * 0.5f + 0.2f * OPEN_PERCEPTUAL_B)) < 1e-6f);
   doorEngineSetDoorState(false);
   testMillis = 3000;
   doorEngineUpdate(a, b);
@@ -69,6 +77,17 @@ static void testDoors() {
   assert(doorEngineGetAmbientBrightness() == 0);
   for (int i = 0; i < 20; ++i) doorEngineHandleButton(BTN_EVENT_BRIGHT_UP);
   assert(doorEngineGetAmbientBrightness() == 1);
+  doorEngineSetDoorState(true);
+  testMillis += 5000;
+  doorEngineUpdate(a, b);
+  assert(a.w == OPEN_PERCEPTUAL_W && b.w == a.w);
+  assert(a.r == OPEN_PERCEPTUAL_R && b.r == a.r);
+  assert(a.g == OPEN_PERCEPTUAL_G && b.g == a.g);
+  assert(a.b == OPEN_PERCEPTUAL_B && b.b == a.b);
+  doorEngineHandleButton(BTN_EVENT_MODE_NEXT);
+  doorEngineUpdate(a, b);
+  assert(a.w == 1.0f && b.w == 0.0f); // Work-shelf Debug remains full power.
+
 }
 
 static void testAudio() {
@@ -173,6 +192,10 @@ static void testPcm() {
   testMillis += 2000;
   StripColor a,b; doorEngineUpdate(a,b);
   assert(std::fabs(doorProgress - 0.4f) < 1e-6f);
+  // The task-white contribution is never attenuated, even mid-fade.
+  assert(std::fabs(a.r - (b.r * 0.5f + 0.2f * OPEN_PERCEPTUAL_R)) < 1e-6f);
+  assert(std::fabs(a.g - (b.g * 0.5f + 0.2f * OPEN_PERCEPTUAL_G)) < 1e-6f);
+  assert(std::fabs(a.b - (b.b * 0.5f + 0.2f * OPEN_PERCEPTUAL_B)) < 1e-6f);
 }
 
 int main() {

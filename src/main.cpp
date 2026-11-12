@@ -74,11 +74,11 @@ void loop() {
   doorEngineSetDoorState(doorOpen);
 
   // 4. Compute Color Blending & Kinematics
-  StripColor s1, s2;
-  doorEngineUpdate(s1, s2);
+  StripColor workShelf, cabinetPerimeter;
+  doorEngineUpdate(workShelf, cabinetPerimeter);
 
   // 5. Commit Outputs to MOSFETs via 74AHCT541 (20 kHz hardware-timed Sigma-Delta dither)
-  setStripOutputs(s1, s2);
+  setStripOutputs(workShelf, cabinetPerimeter);
 
   // 6. Periodic Diagnostic Telemetry (Every 1 second over Serial + UDP)
   static uint32_t lastTelemetry = 0;
@@ -89,18 +89,18 @@ void loop() {
 
     int briTenths = (int)(doorEngineGetAmbientBrightness() * 1000.0f + 0.5f);
     int micPerm   = (int)(audioSnap.subBass * 1000.0f + 0.5f);
-    int w1Pct     = (int)(s1.w * 100.0f + 0.5f);
-    int r1Pct     = (int)(s1.r * 100.0f + 0.5f);
-    int g1Pct     = (int)(s1.g * 100.0f + 0.5f);
-    int b1Pct     = (int)(s1.b * 100.0f + 0.5f);
-    int w2Pct     = (int)(s2.w * 100.0f + 0.5f);
-    int r2Pct     = (int)(s2.r * 100.0f + 0.5f);
-    int g2Pct     = (int)(s2.g * 100.0f + 0.5f);
-    int b2Pct     = (int)(s2.b * 100.0f + 0.5f);
+    int w1Pct     = (int)(workShelf.w * 100.0f + 0.5f);
+    int r1Pct     = (int)(workShelf.r * 100.0f + 0.5f);
+    int g1Pct     = (int)(workShelf.g * 100.0f + 0.5f);
+    int b1Pct     = (int)(workShelf.b * 100.0f + 0.5f);
+    int w2Pct     = (int)(cabinetPerimeter.w * 100.0f + 0.5f);
+    int r2Pct     = (int)(cabinetPerimeter.r * 100.0f + 0.5f);
+    int g2Pct     = (int)(cabinetPerimeter.g * 100.0f + 0.5f);
+    int b2Pct     = (int)(cabinetPerimeter.b * 100.0f + 0.5f);
 
     char logBuf[220];
     snprintf(logBuf, sizeof(logBuf),
-             "[RUNNING] Door: %s | Mode: %s | Bri: %d.%d%% | Mic: %d.%03d | S1(%d.%02d,%d.%02d,%d.%02d,%d.%02d) S2(%d.%02d,%d.%02d,%d.%02d,%d.%02d)",
+             "[RUNNING] Door: %s | Mode: %s | Bri: %d.%d%% | Mic: %d.%03d | WorkShelf(%d.%02d,%d.%02d,%d.%02d,%d.%02d) CabinetPerimeter(%d.%02d,%d.%02d,%d.%02d,%d.%02d)",
              doorOpen ? "OPEN" : "CLOSED",
              doorEngineGetModeLabel(),
              briTenths / 10, briTenths % 10,

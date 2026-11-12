@@ -8,7 +8,7 @@ The firmware partitions real-time hardware kinematics and ultrasonic 20 kHz PWM 
 
 ## Hardware Overview
 
-![Assembled Cabinet Lighting Controller on the Test Bench](doc/cabinet-controller-top.png)
+![Assembled Cabinet Lighting Controller on the Test Bench](doc/cabinet_controller_top.png)
 
 - **MCU:** Raspberry Pi Pico 2 W (RP2350, Dual ARM Cortex-M33 @ 150 MHz with single-precision FPU & DSP SIMD)
 - **LED Drive:** 2× 12V RGBW LED strips (8 channels total) driven at **20 kHz, 7500-tick (6.67 ns/tick)** via a `74AHCT541N` 5V octal buffer and 8× `IRLZ44N` low-side N-channel MOSFETs (with `180 Ω` gate stoppers and `10 kΩ` pull-downs in a 31-pin keyed female header socket bank)
@@ -20,8 +20,8 @@ The firmware partitions real-time hardware kinematics and ultrasonic 20 kHz PWM 
 
 | Function | GPIO | Pico Physical Pin | Notes |
 | :--- | :--- | :--- | :--- |
-| **Strip 1 — White / Blue / Red / Green** | `GP16`, `GP17`, `GP18`, `GP19` | Pins 21, 22, 24, 25 | 20 kHz PWM $\rightarrow$ `74AHCT541N` $\rightarrow$ `IRLZ44N` |
-| **Strip 2 — White / Blue / Red / Green** | `GP20`, `GP21`, `GP26`, `GP27` | Pins 26, 27, 31, 32 | 20 kHz PWM $\rightarrow$ `74AHCT541N` $\rightarrow$ `IRLZ44N` |
+| **Work shelf (strip 1) — White / Blue / Red / Green** | `GP16`, `GP17`, `GP18`, `GP19` | Pins 21, 22, 24, 25 | 20 kHz PWM $\rightarrow$ `74AHCT541N` $\rightarrow$ `IRLZ44N` |
+| **Cabinet perimeter (strip 2) — White / Blue / Red / Green** | `GP20`, `GP21`, `GP26`, `GP27` | Pins 26, 27, 31, 32 | 20 kHz PWM $\rightarrow$ `74AHCT541N` $\rightarrow$ `IRLZ44N` |
 | **Left / Right Door Reed Switches** | `GP0`, `GP1` | Pins 1, 2 (GND: Pin 3) | `LOW` = Closed, `HIGH` = Open |
 | **Buttons: Mode Next / Mode Prev / Brightness Up / Brightness Down** | `GP8`, `GP9`, `GP10`, `GP11` | Pins 11, 12, 14, 15 (GND: Pin 13) | 35 ms debounced falling-edge triggers |
 | **INMP441 I2S (`BCLK`, `WS`, `DATA`)** | `GP13`, `GP14`, `GP15` | Pins 17, 19, 20 (`3V3`: Pin 36, `GND`: Pin 18) | `WS` is constrained to `BCLK + 1` |
@@ -33,7 +33,7 @@ The firmware partitions real-time hardware kinematics and ultrasonic 20 kHz PWM 
 - **Core 0 (`setup()` / `loop()` @ ~200 Hz):**
   - **Perceptual Color & Kinematics ([`src/door_engine.cpp`](src/door_engine.cpp)):**
     - **Door Open:** 5-second linear cross-fade in empirical gamma-2.4 perceptual space ($\gamma = 2.4$) to calibrated photopic task white (`W: 1.00, R: 1.00, G: 0.90, B: 0.86`), with constant-speed mid-fade reversals.
-    - **Normal mode:** Door closed runs a 30-second shortest-arc random hue walk. Thirteen brightness steps span 0–100%, starting at level 4 (9%, with level 0 off). Buttons 1/2 select the next/previous mode; buttons 3/4 adjust brightness.
+    - **Normal mode:** Door closed runs a 30-second shortest-arc random hue walk. Thirteen brightness steps span 0–100%, starting at level 8 (30%, with level 0 off). Work shelf (strip 1) uses 50% of cabinet perimeter (strip 2) ambient brightness before gamma; both share the same hue and fade to the same door-open task white. Tune `WORK_SHELF_AMBIENT_FRACTION` in `include/config.h`. The perimeter runs up the left side, through the arch, and down the right side. Buttons 1/2 select the next/previous mode; buttons 3/4 adjust brightness.
     - **Debug mode:** Cycles all eight MOSFET channels at 100%, holding each for 1.5 seconds. Hue and door state keep advancing in the background.
   - **Ultrasonic PWM Driver ([`src/led_driver.cpp`](src/led_driver.cpp)):** Maps perceptual lightness through gamma 2.4 into 7500 native ticks at 20 kHz. A RAM-resident wrap ISR uses Q0.16 Sigma-Delta dithering, independent of the control loop.
   - **Input Debouncing ([`src/button_manager.cpp`](src/button_manager.cpp)):** Non-blocking 35 ms state machine across both door contacts and all four satellite buttons. Independent simultaneous presses both apply; same-sample Next+Prev and Up+Down pairs cancel. Held buttons do not repeat.

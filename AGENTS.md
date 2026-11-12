@@ -39,8 +39,8 @@ Use snake_case for new filenames when naming is unconstrained; preserve required
 
 - **8-Channel PWM (Level-shifted via `74AHCT541N` to `IRLZ44N` gates, 20 kHz ultrasonic, 7500-tick (6.67 ns/tick)):**
   - Hardware-timed Sigma-Delta uses `PWM_PEDESTAL_TICKS = 20` and `PWM_MIN_PULSE_TICKS = 30`.
-  - **Strip 1:** White = `GP16` (Pin 21), Blue = `GP17` (Pin 22), Red = `GP18` (Pin 24), Green = `GP19` (Pin 25)
-  - **Strip 2:** White = `GP20` (Pin 26), Blue = `GP21` (Pin 27), Red = `GP26` (Pin 31), Green = `GP27` (Pin 32)
+  - **Work shelf (strip 1):** White = `GP16` (Pin 21), Blue = `GP17` (Pin 22), Red = `GP18` (Pin 24), Green = `GP19` (Pin 25)
+  - **Cabinet perimeter (strip 2):** White = `GP20` (Pin 26), Blue = `GP21` (Pin 27), Red = `GP26` (Pin 31), Green = `GP27` (Pin 32)
 - **Door Reed Switches (Active-LOW, `INPUT_PULLUP` + `0.1 µF` cap to GND, Grounded/`LOW` = Closed, `HIGH` = Open):**
   - Left Door Reed: `GP0` (Pin 1)
   - Right Door Reed: `GP1` (Pin 2)
@@ -65,7 +65,7 @@ Use snake_case for new filenames when naming is unconstrained; preserve required
   - Owns all `Serial` telemetry, hardware PWM outputs and their RAM-resident wrap ISR, reed switch / button debouncing, door fade kinematics, and Wi-Fi/OTA services.
   - Default startup door state is always **CLOSED** (`LOW`).
   - Door open triggers a 5-second linear cross-fade in empirical gamma-2.4 perceptual space ($\gamma = 2.4$) to photopic task white (`W: 1.0, R: 1.0, G: 0.90, B: 0.86`).
-  - `MODE_NORMAL`: door closed runs a 30-second random shortest-arc hue walk with 13 brightness steps (0–100%, default level 4 / 9%); door open fades to task white at constant speed. `MODE_DEBUG`: cycles all eight channels at 100% for 1.5 seconds each. Audio-reactive rendering is planned for Phase 3.
+  - `MODE_NORMAL`: door closed runs a 30-second random shortest-arc hue walk with 13 brightness steps (0–100%, default level 8 / 30%); work shelf uses 50% of perimeter ambient brightness before gamma; door open fades both to the same task white at constant speed. `MODE_DEBUG`: cycles all eight channels at 100% for 1.5 seconds each. Audio-reactive rendering is planned for Phase 3.
 - **Core 1 (`setup1()` / `loop1()`):**
   - Currently owns 16 kHz I2S ingestion, DC blocking, peak-hold telemetry, and OTA pause/resume. Phase 3/4 extends this with 4-band `DF2T` IIR filtering, adaptive noise-floor + rolling AGC normalization, envelope followers, and background TinyML classification.
   - **Strict Dual-Core Safety Rule:** Never call `analogWrite`, touch GPIO outputs, or print to `Serial` from Core 1. Core 1 communicates with Core 0 strictly via lock-free / double-buffered shared state structs.

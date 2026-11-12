@@ -16,7 +16,7 @@ enum ControllerMode : uint8_t {
 void doorEngineInit(bool initialDoorOpen);
 void doorEngineSetDoorState(bool isOpen);
 void doorEngineHandleButton(ButtonEvent event);
-void doorEngineUpdate(StripColor& outS1, StripColor& outS2);
+void doorEngineUpdate(StripColor& outWorkShelf, StripColor& outCabinetPerimeter);
 
 float doorEngineGetAmbientBrightness();
 ControllerMode doorEngineGetMode();

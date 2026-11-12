@@ -15,7 +15,7 @@ static ControllerMode currentMode = MODE_NORMAL;
 //   Step 1  (4%):    ~33% duty of 30-tick matched pulse (20 kHz 0 <-> 30 dither)
 //   Step 2  (5%):    ~56% duty of 30-tick matched pulse (20 kHz 0 <-> 30 dither)
 //   Step 3  (7%):    32.6 ticks (continuous >= 30-tick matched dark-room floor)
-//   Step 4  (9%):    43.1 ticks (Default startup level)
+//   Step 4  (9%):    43.1 ticks
 //   Step 5  (12%):   66.2 ticks
 //   Step 6  (16%):  112.2 ticks
 //   Step 7  (22%):  218.0 ticks
@@ -30,17 +30,17 @@ static constexpr float BRIGHTNESS_TABLE[BRIGHTNESS_STEP_COUNT] = {
   0.04f, // Step 1:  4% (Sub-threshold 0 <-> 30 tick dither, ~33%)
   0.05f, // Step 2:  5% (Sub-threshold 0 <-> 30 tick dither, ~56%)
   0.07f, // Step 3:  7% (Continuous >30 ticks matched floor)
-  0.09f, // Step 4:  9% (Default startup level)
+  0.09f, // Step 4:  9%
   0.12f, // Step 5:  12%
   0.16f, // Step 6:  16%
   0.22f, // Step 7:  22%
-  0.30f, // Step 8:  30%
+  0.30f, // Step 8:  30% (Default startup level)
   0.40f, // Step 9:  40%
   0.55f, // Step 10: 55%
   0.75f, // Step 11: 75%
   1.00f  // Step 12: 100%
 };
-static constexpr uint8_t DEFAULT_BRIGHTNESS_INDEX = 4; // Level 4: 9% (level 0 is off)
+static constexpr uint8_t DEFAULT_BRIGHTNESS_INDEX = 8;
 static uint8_t brightnessIndex = DEFAULT_BRIGHTNESS_INDEX;
 static float ambientBrightness = BRIGHTNESS_TABLE[DEFAULT_BRIGHTNESS_INDEX];
 
@@ -59,14 +59,14 @@ struct DebugChannel {
   float StripColor::*component;
 };
 static const DebugChannel DEBUG_CHANNELS[8] = {
-  {"W1 (GP16)", "DEBUG:W1", 0, &StripColor::w},
-  {"R1 (GP18)", "DEBUG:R1", 0, &StripColor::r},
-  {"G1 (GP19)", "DEBUG:G1", 0, &StripColor::g},
-  {"B1 (GP17)", "DEBUG:B1", 0, &StripColor::b},
-  {"W2 (GP20)", "DEBUG:W2", 1, &StripColor::w},
-  {"R2 (GP26)", "DEBUG:R2", 1, &StripColor::r},
-  {"G2 (GP27)", "DEBUG:G2", 1, &StripColor::g},
-  {"B2 (GP21)", "DEBUG:B2", 1, &StripColor::b}
+  {"Work shelf W (GP16)", "DEBUG:W1", 0, &StripColor::w},
+  {"Work shelf R (GP18)", "DEBUG:R1", 0, &StripColor::r},
+  {"Work shelf G (GP19)", "DEBUG:G1", 0, &StripColor::g},
+  {"Work shelf B (GP17)", "DEBUG:B1", 0, &StripColor::b},
+  {"Cabinet perimeter W (GP20)", "DEBUG:W2", 1, &StripColor::w},
+  {"Cabinet perimeter R (GP26)", "DEBUG:R2", 1, &StripColor::r},
+  {"Cabinet perimeter G (GP27)", "DEBUG:G2", 1, &StripColor::g},
+  {"Cabinet perimeter B (GP21)", "DEBUG:B2", 1, &StripColor::b}
 };
 
 static float shortestAngularDelta(float from, float to) {
@@ -180,7 +180,7 @@ void doorEngineHandleButton(ButtonEvent event) {
   }
 }
 
-void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
+void doorEngineUpdate(StripColor& outWorkShelf, StripColor& outCabinetPerimeter) {
   uint32_t now = millis();
 
   // 1. Always keep Normal-mode hue walk & door fade state advancing smoothly in background
@@ -211,11 +211,11 @@ void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
       telemetryLogLine(logBuf);
     }
 
-    outS1 = {0.0f, 0.0f, 0.0f, 0.0f};
-    outS2 = {0.0f, 0.0f, 0.0f, 0.0f};
+    outWorkShelf = {0.0f, 0.0f, 0.0f, 0.0f};
+    outCabinetPerimeter = {0.0f, 0.0f, 0.0f, 0.0f};
 
     const DebugChannel& channel = DEBUG_CHANNELS[debugChannelIndex];
-    StripColor& strip = channel.strip == 0 ? outS1 : outS2;
+    StripColor& strip = channel.strip == 0 ? outWorkShelf : outCabinetPerimeter;
     strip.*(channel.component) = 1.0f;
     return;
   }
@@ -225,14 +225,17 @@ void doorEngineUpdate(StripColor& outS1, StripColor& outS2) {
   hueToRGB(currentHue, ambientBrightness, ambientColor.r, ambientColor.g, ambientColor.b);
 
   float u = constrain(doorProgress, 0.0f, 1.0f);
-  StripColor activeColor;
-  activeColor.w = (1.0f - u) * ambientColor.w + u * OPEN_PERCEPTUAL_W;
-  activeColor.r = (1.0f - u) * ambientColor.r + u * OPEN_PERCEPTUAL_R;
-  activeColor.g = (1.0f - u) * ambientColor.g + u * OPEN_PERCEPTUAL_G;
-  activeColor.b = (1.0f - u) * ambientColor.b + u * OPEN_PERCEPTUAL_B;
-
-  outS1 = activeColor;
-  outS2 = activeColor;
+  // Scale only the ambient endpoint: both strips converge to the same task white.
+  auto blendTaskWhite = [u](const StripColor& ambient, float fraction) {
+    return StripColor{
+      (1.0f - u) * ambient.w * fraction + u * OPEN_PERCEPTUAL_W,
+      (1.0f - u) * ambient.r * fraction + u * OPEN_PERCEPTUAL_R,
+      (1.0f - u) * ambient.g * fraction + u * OPEN_PERCEPTUAL_G,
+      (1.0f - u) * ambient.b * fraction + u * OPEN_PERCEPTUAL_B
+    };
+  };
+  outWorkShelf = blendTaskWhite(ambientColor, WORK_SHELF_AMBIENT_FRACTION);
+  outCabinetPerimeter = blendTaskWhite(ambientColor, 1.0f);
 }
 
 float doorEngineGetAmbientBrightness() {
