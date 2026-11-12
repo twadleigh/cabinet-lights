@@ -19,6 +19,10 @@ def staging_limit(filesystem_size):
 
 def validate_image(path, filesystem_size):
     path = Path(path)
+    # Match espota: it prefers a sibling .signed artifact when present.
+    signed = Path(str(path) + ".signed")
+    if signed.is_file():
+        path = signed
     limit = staging_limit(filesystem_size)
     size = path.stat().st_size
     if not 0 < size <= limit:

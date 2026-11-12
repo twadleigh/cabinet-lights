@@ -337,8 +337,10 @@ void CabinetOTAClass::_runUpdate() {
 
     uint32_t written, total = 0;
     while (!update.isFinished() && (client.connected() || client.available())) {
+        // Match the sender's 10-second per-chunk budget. A one-second gap can
+        // occur during Wi-Fi retransmission even while TCP remains connected.
         uint32_t start = millis();
-        while (!client.available() && client.connected() && uint32_t(millis() - start) < 1000) {
+        while (!client.available() && client.connected() && uint32_t(millis() - start) < 10000) {
             delay(1);
         }
         if (!client.available()) {

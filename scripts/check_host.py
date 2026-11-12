@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="cabinet-host-") as tmp:
     ], check=True)
     for scenario in ("fs_failure", "cleanup_failure", "prep_expiry", "auth_timeout", "bad_auth", "wrong_peer",
                      "main", "pause_failure", "begin_failure", "receive_timeout", "success", "connect_failure",
-                     "filesystem_upload", "no_auth", "no_guard"):
+                     "filesystem_upload", "no_auth", "no_guard", "delayed_receive"):
         subprocess.run([ota_binary, scenario], check=True)
     # Exercise the actual uploader entry point without a board or real secrets.
     stub = Path(tmp) / "uploader.py"
@@ -49,3 +49,5 @@ with tempfile.TemporaryDirectory(prefix="cabinet-host-") as tmp:
 
 subprocess.run([sys.executable, str(ROOT / "test/host/ota_preflight.py")], check=True)
 subprocess.run([sys.executable, str(ROOT / "scripts/check_model_spec.py")], check=True)
+
+subprocess.run([sys.executable, str(ROOT / "test/host/ota_sender.py")], check=True)

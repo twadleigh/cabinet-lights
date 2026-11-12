@@ -100,14 +100,21 @@ int main(int argc, char** argv) {
       if (scenario == "pause_failure") testDelayHook = nullptr;
       if (scenario == "begin_failure") testUpdateBeginOk = false;
       if (scenario == "receive_timeout") testClientConnect = true;
-      if (scenario == "success") { testClientConnect = true; testClientBytes = 100; testUpdateEndOk = true; }
+      if (scenario == "success" || scenario == "delayed_receive") { testClientConnect = true; testClientBytes = 100; testUpdateEndOk = true; }
+      if (scenario == "delayed_receive") {
+        testMillis = UINT32_MAX - 500;
+        testClientReadyStart = testMillis;
+        testClientReadyDelay = 2000;
+      }
+      const auto started = testMillis;
       const auto calls = testFsCalls;
       invite(scenario == "filesystem_upload" ? U_FS : U_FLASH);
       auth(); otaManagerUpdate();
       if (scenario == "pause_failure" || scenario == "filesystem_upload") {
         assert(testFsCalls == calls && testUpdateBegins == 0);
       } else assert(testUpdateBegins == 1 && testUpdateClosed == 1);
-      if (scenario != "success") online();
+      if (scenario == "receive_timeout") assert(uint32_t(testMillis - started) >= 10000);
+      if (scenario != "success" && scenario != "delayed_receive") online();
       else assert(otaPauseRequested); // Successful staging stays paused for reboot.
     }
   }

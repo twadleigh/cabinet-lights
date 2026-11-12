@@ -38,7 +38,7 @@ def discover_pico_ip(source, target, env):
     target_host = env.subst("$UPLOAD_PORT") or hostname
     # Inject authentication inside Python so arbitrary passwords never pass
     # through SCons substitution, shell quoting, or command-line logging.
-    original_uploader = env.subst("$UPLOADER")
+    original_uploader = os.path.join(env.subst("$PROJECT_DIR"), "lib", "cabinet_ota", "tools", "cabinet_espota.py")
     env.Replace(
         UPLOADER=os.path.join(env.subst("$PROJECT_DIR"), "scripts", "ota_upload.py"),
         UPLOADERFLAGS=[original_uploader, *env["UPLOADERFLAGS"]],

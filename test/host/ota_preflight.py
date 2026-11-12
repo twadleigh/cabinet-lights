@@ -50,6 +50,12 @@ class Preflight(unittest.TestCase):
         with self.assertRaises(ValueError): self.run_action()
         self.sockets.assert_not_called()  # No PREP before rejection.
 
+    def test_preferred_signed_artifact(self):
+        signed = Path(str(self.image) + '.signed')
+        signed.write_bytes(b'x' * 983041)
+        with self.assertRaises(ValueError): self.run_action()
+        self.sockets.assert_not_called()
+
     def test_empty_and_compressed(self):
         for data in (b'', b'\x1f\x8b' + b'x'*100):
             self.image.write_bytes(data)

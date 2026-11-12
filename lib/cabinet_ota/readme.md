@@ -14,9 +14,11 @@ Changes:
   application resumes Core 1. Upstream global Update retains the file on errors.
 - Filesystem mount failures notify the error callback.
 - Authentication waits expire after 15 seconds; replies must come from the
-  initiating peer. Stream receive timeout uses wrap-safe elapsed time and exits.
+  initiating peer. Stream receive timeout uses wrap-safe elapsed time and exits after 10 seconds without data, matching the sender's per-chunk budget. A one-second limit proved too short on the installed board.
 
 The espota wire protocol and optional password authentication remain compatible.
 Host tests compile this actual transport with fake network/storage boundaries;
 board validation is still required. On core upgrades, compare this fork against
 upstream and rerun transport, lifecycle and firmware tests. Do not edit package caches.
+
+The local `tools/cabinet_espota.py` is copied from `tools/espota.py` at the same pinned core revision. It preserves a final OK consumed alongside the last chunk acknowledgement and treats EOF without OK as failure, avoiding the upstream infinite result wait. PlatformIO selects this sender through `scripts/ota_discover.py`; `scripts/ota_upload.py` still forwards optional credentials without debug logging.

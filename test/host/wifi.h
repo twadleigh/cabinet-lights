@@ -21,10 +21,11 @@ struct TestWiFi {
 inline TestWiFi WiFi;
 inline bool testClientConnect=false;
 inline int testClientBytes=0;
+inline uint32_t testClientReadyStart=0, testClientReadyDelay=0;
 class WiFiClient {
  public:
  bool connect(IPAddress,int) { return testClientConnect; }
  void setNoDelay(bool) {} bool connected() { return testClientConnect; }
- int available() { return testClientBytes; }
+ int available() { return uint32_t(millis() - testClientReadyStart) >= testClientReadyDelay ? testClientBytes : 0; }
  void print(unsigned,int) {} void print(const char*) {} void flush() {} void stop() {}
 };
