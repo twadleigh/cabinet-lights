@@ -6,6 +6,16 @@ The firmware partitions real-time hardware kinematics and ultrasonic 20 kHz PWM 
 
 ---
 
+## Installed Bar Cabinet
+
+The work-shelf strip lights the bar's preparation surface. The cabinet-perimeter strip runs up the front left side, around the arch, and down the right side, also contributing light to the shelf.
+
+| Doors open — task lighting | Doors closed — ambient lighting |
+| :---: | :---: |
+| ![Bar cabinet with doors open and white task lighting](doc/cabinet_doors_open.png) | ![Bar cabinet with doors closed and red ambient lighting](doc/cabinet_doors_closed.png) |
+
+The closed-door photo captures one color in the ambient hue walk. These installation photos were taken before the work-shelf ambient brightness was reduced to 50% of the perimeter brightness.
+
 ## Hardware Overview
 
 ![Assembled Cabinet Lighting Controller on the Test Bench](doc/cabinet_controller_top.png)
